@@ -3,3 +3,5 @@ gunicorn
 kerykeion
 jyotichart
 geopy
+sqlalchemy
+psycopg2-binary
