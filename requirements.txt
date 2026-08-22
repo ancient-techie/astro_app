@@ -2,3 +2,4 @@ Flask
 gunicorn
 kerykeion
 jyotichart
+geopy
