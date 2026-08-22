@@ -49,6 +49,11 @@ h1{font-family:'Cinzel',serif;font-size:1.6rem;letter-spacing:.15em;color:#d4af3
 .cell{background:#c8bd9e;position:relative;overflow:visible;transition:background .4s ease;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:var(--cell)}
 .cell.empty{background:#0c0c1a;pointer-events:none}
 .cell.active-drop{outline:2px dashed rgba(212,175,55,.9);outline-offset:-2px}
+/* Tap-to-place mode (mobile alternative to drag-and-drop): once a palette
+   planet is selected, every valid house gets a steady gold outline so it's
+   obvious where a tap will land - no hover state needed. */
+.chart-grid.selecting .cell:not(.empty){cursor:pointer;box-shadow:inset 0 0 0 2px rgba(212,175,55,.6);}
+.chart-grid.selecting .cell:not(.empty):hover{box-shadow:inset 0 0 0 2px rgba(255,224,96,.95);}
 .sign-label{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:calc(var(--cell) * 0.0652);font-family:'Cinzel',serif;font-weight:700;letter-spacing:.04em;white-space:nowrap;pointer-events:none;z-index:2;color:#1a1000;background:rgba(255,242,200,.72);border-radius:3px;padding:1px 5px;box-shadow:0 0 0 1px rgba(160,120,30,.3)}
 .house-number{position:absolute;font-size:max(8px,calc(var(--cell) * 0.0957));font-family:'Cinzel',serif;font-weight:700;color:#ffe060;text-shadow:0 1px 4px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.7);pointer-events:none;z-index:20;line-height:1}
 .house-num-top{top:calc(var(--cell) * -0.1739);left:50%;transform:translateX(-50%)}
@@ -60,6 +65,22 @@ h1{font-family:'Cinzel',serif;font-size:1.6rem;letter-spacing:.15em;color:#d4af3
 .planet-token:hover{transform:scale(1.1);box-shadow:0 3px 10px rgba(0,0,0,.6)}
 .planet-token:active{cursor:grabbing}
 .planet-token.dragging{opacity:.3}
+/* Selected in the palette, waiting for a tap on a house */
+.planet-token.token-selected{outline:2px solid #ffe060;outline-offset:2px;box-shadow:0 0 10px rgba(255,224,96,.85) !important;transform:scale(1.1);}
+/* Placed on the chart and armed with its remove (x) button */
+.planet-token.token-armed{z-index:25;}
+.token-remove-btn{
+  position:absolute;top:-7px;right:-7px;z-index:30;
+  width:15px;height:15px;padding:0;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:#ff3b30;color:#fff;font-family:'Lato',sans-serif;
+  font-size:11px;font-weight:900;line-height:1;
+  border:1.5px solid rgba(255,255,255,.85);
+  box-shadow:0 2px 6px rgba(0,0,0,.6);
+  cursor:pointer;
+}
+.token-remove-btn:hover{background:#ff6655;}
+.token-remove-btn:active{transform:scale(0.9);}
 svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;width:100%;height:100%}
 /* PALETTE */
 .palette{background:rgba(255,255,255,.04);border:1px solid rgba(212,175,55,.3);border-radius:12px;padding:clamp(8px,3vw,18px) clamp(6px,2.5vw,14px);min-width:clamp(70px,22vw,115px);box-shadow:0 0 20px rgba(0,0,0,.4)}
@@ -280,7 +301,7 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
       <div class="cb-cell"><input type="checkbox" id="cbMasterColor" class="cb-master cb-master-color" checked onchange="toggleAllCb('color',this.checked)"></div>
     </div>
     <div id="palette"></div>
-    <div class="legend">Drag planets<br>into chart<br>or back here.<br><br><span style="color:#d4af37">Asc</span> = house 1.</div>
+    <div class="legend">Drag planets into chart, or tap one then tap a house.<br>Tap a placed planet to remove it.<br><br><span style="color:#d4af37">Asc</span> = house 1.</div>
   </div>
 </div>
 
@@ -562,6 +583,11 @@ function gridPosOfSign(sIdx){return GRID_SIGNS.findIndex(s=>s&&SIGNS.indexOf(s)=
 let cellPlanets={};
 let rayOpacity=0.65;
 let activeTab='good';
+// Tap-to-place (mobile alternative to drag-and-drop): the palette planet
+// currently armed for placement, and the on-chart planet currently showing
+// its remove (x) button. Only one of each can be active at a time.
+let selectedPalettePlanet=null;
+let removeTargetPlanet=null;
 // Per-planet visibility: showArrow[p]=true means draw aspect rays for planet p
 //                        showColor[p]=true means color signs from planet p's aspects
 const showArrow={};
@@ -598,6 +624,7 @@ for(let i=0;i<16;i++){
     cell.addEventListener('dragover',onDragOver);
     cell.addEventListener('drop',e=>onDrop(e,i));
     cell.addEventListener('dragleave',onDragLeave);
+    cell.addEventListener('click',e=>onCellClick(e,i));
   }
   chartGrid.appendChild(cell);
 }
@@ -704,12 +731,20 @@ function createToken(planet,moonBright){
   t.style.background=bg;t.style.color=textCol;t.style.border=border;
   if(planet!=='Asc'&&planet!=='Mon'){const[r,g,b]=PLANET_BASE[planet].mix;t.style.boxShadow=`0 1px 6px rgba(${r},${g},${b},.55)`;}
   t.addEventListener('dragstart',onDragStart);t.addEventListener('dragend',onDragEnd);
+  t.addEventListener('click',onTokenClick);
+  if(planet===selectedPalettePlanet) t.classList.add('token-selected');
   return t;
 }
 
 // ── DRAG & DROP ───────────────────────────────────
 let dragPlanet=null,dragSourcePos=null;
-function onDragStart(e){dragPlanet=e.target.closest('[data-planet]')?.dataset.planet;const fromPalette=!!e.target.closest('#palette');const posAttr=e.target.closest('[data-pos]')?.dataset.pos;dragSourcePos=(!fromPalette&&posAttr!==undefined)?parseInt(posAttr):null;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move';}
+function onDragStart(e){
+  // A real drag is starting - cancel any tap-to-place selection or armed
+  // remove button first, so the two interaction modes never fight over the
+  // same token (e.g. a stale "selected" planet getting placed a second time
+  // via a later tap, after this drag already moved it).
+  cancelTapMode();
+  dragPlanet=e.target.closest('[data-planet]')?.dataset.planet;const fromPalette=!!e.target.closest('#palette');const posAttr=e.target.closest('[data-pos]')?.dataset.pos;dragSourcePos=(!fromPalette&&posAttr!==undefined)?parseInt(posAttr):null;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move';}
 function onDragEnd(e){e.target.classList.remove('dragging');}
 function onDragOver(e){e.preventDefault();const cell=e.currentTarget.closest?.('.cell');if(cell&&!cell.classList.contains('empty')) cell.classList.add('active-drop');}
 function onDragLeave(e){const cell=e.currentTarget.closest?.('.cell');if(cell) cell.classList.remove('active-drop');}
@@ -717,6 +752,70 @@ function onDrop(e,targetPos){e.preventDefault();e.currentTarget.classList.remove
 function onDropPalette(e){e.preventDefault();if(!dragPlanet) return;if(dragSourcePos!==null) removePlanetFromCell(dragSourcePos,dragPlanet);ensurePaletteToken(dragPlanet);dragPlanet=null;dragSourcePos=null;updateAll();}
 function addPlanetToCell(pos,planet){if(!cellPlanets[pos]) cellPlanets[pos]=[];removePaletteToken(planet);cellPlanets[pos].push(planet);renderCell(pos);updateAll();}
 function removePlanetFromCell(pos,planet){if(!cellPlanets[pos]) return;const i=cellPlanets[pos].indexOf(planet);if(i!==-1) cellPlanets[pos].splice(i,1);renderCell(pos);updateAll();}
+
+// ── TAP-TO-PLACE (mobile alternative to drag-and-drop) ─────────────
+// Tap a planet in the palette to arm it, then tap any house to drop it
+// there. Tap a planet already on the chart to arm its remove (x) button
+// instead; tapping the (x) sends it back to the palette. Tapping anywhere
+// else (another token, a house with nothing armed, or empty space) clears
+// whichever of the two is currently armed.
+function onTokenClick(e){
+  e.stopPropagation();
+  const planet=e.currentTarget.dataset.planet;
+  const onChart=!e.currentTarget.closest('#palette');
+  if(onChart) armRemoveButton(planet,e.currentTarget);
+  else armPaletteSelection(planet);
+}
+function armPaletteSelection(planet){
+  disarmRemoveButton();
+  setSelectedPalettePlanet(selectedPalettePlanet===planet?null:planet);
+}
+function setSelectedPalettePlanet(planet){
+  if(selectedPalettePlanet){
+    paletteSlots[selectedPalettePlanet]?.querySelector('.planet-token')?.classList.remove('token-selected');
+  }
+  selectedPalettePlanet=planet;
+  chartGrid.classList.toggle('selecting',!!planet);
+  if(planet){
+    paletteSlots[planet]?.querySelector('.planet-token')?.classList.add('token-selected');
+  }
+}
+function armRemoveButton(planet,tokenEl){
+  setSelectedPalettePlanet(null);
+  if(removeTargetPlanet===planet){disarmRemoveButton();return;}
+  disarmRemoveButton();
+  removeTargetPlanet=planet;
+  tokenEl.classList.add('token-armed');
+  const btn=document.createElement('button');
+  btn.type='button';btn.className='token-remove-btn';btn.textContent='×';
+  btn.setAttribute('aria-label','Remove '+planet+' from the chart');
+  btn.addEventListener('click',function(ev){
+    ev.stopPropagation();
+    const pos=parseInt(tokenEl.closest('.cell').dataset.pos,10);
+    disarmRemoveButton();
+    removePlanetFromCell(pos,planet);
+    ensurePaletteToken(planet);
+    updateAll();
+  });
+  tokenEl.appendChild(btn);
+}
+function disarmRemoveButton(){
+  if(!removeTargetPlanet) return;
+  document.querySelectorAll('.token-remove-btn').forEach(b=>b.remove());
+  document.querySelectorAll('.planet-token.token-armed').forEach(t=>t.classList.remove('token-armed'));
+  removeTargetPlanet=null;
+}
+function cancelTapMode(){setSelectedPalettePlanet(null);disarmRemoveButton();}
+function onCellClick(e,pos){
+  e.stopPropagation();
+  if(!selectedPalettePlanet) return;
+  const planet=selectedPalettePlanet;
+  setSelectedPalettePlanet(null);
+  addPlanetToCell(pos,planet);
+}
+// Tapping anywhere that didn't already handle its own click (a token or a
+// house) cancels whichever tap-to-place action is mid-flight.
+document.addEventListener('click',cancelTapMode);
 function removePaletteToken(p){
   const s=paletteSlots[p];if(!s) return;
   s.innerHTML='';
@@ -743,6 +842,7 @@ function renderCell(pos){
 
 // ── CLEAR ALL ─────────────────────────────────────
 function clearAll(){
+  cancelTapMode();
   for(let pos=0;pos<16;pos++){if(GRID_SIGNS[pos]) cellPlanets[pos]=[];}
   PLANETS.forEach(p=>ensurePaletteToken(p));
   updateAll();
