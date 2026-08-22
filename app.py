@@ -13,13 +13,13 @@ Combines two free, open-source Python libraries:
                    North Indian (diamond) chart styles.
 
 Birth location:
-  Latitude, longitude, and IANA timezone are entered directly - there's no
-  place-name autocomplete/geocoding here (an earlier version of this app
-  used free, unauthenticated geocoders that turned out to be unreliable,
-  so that dependency was removed). Any map app or a site like
-  latlong.net will give you lat/lng for a birth city, and
+  Type a birth city and press "Confirm place" - the server geocodes it with
+  geopy's Nominatim (OpenStreetMap) backend and fills the latitude and
+  longitude boxes for you. Both fields stay editable, so you can still type
+  coordinates by hand if the lookup misses or the service is down.
+  The IANA timezone is entered separately;
   https://en.wikipedia.org/wiki/List_of_tz_database_time_zones has the
-  IANA timezone names (e.g. Asia/Kolkata, America/New_York).
+  names (e.g. Asia/Kolkata, America/New_York).
 
 Progressive Web App:
   The app ships a manifest, a small offline-capable service worker, and
@@ -29,7 +29,7 @@ Progressive Web App:
   is entirely optional - the app works the same in a regular browser tab.
 
 Setup:
-    pip install flask kerykeion jyotichart
+    pip install flask kerykeion jyotichart geopy
 
 Run:
     python app.py
@@ -41,12 +41,51 @@ import os
 import json
 import base64
 import tempfile
-from flask import Flask, request, render_template_string, redirect, url_for, Response
+from flask import Flask, request, render_template_string, redirect, url_for, Response, jsonify
 
 from kerykeion import AstrologicalSubject
 import jyotichart as chart
 
+try:
+    from geopy.geocoders import Nominatim
+    from geopy.exc import GeocoderServiceError, GeocoderTimedOut
+except ImportError:  # geopy is optional - without it the app just loses lookup
+    Nominatim = None
+    GeocoderServiceError = GeocoderTimedOut = Exception
+
 app = Flask(__name__)
+
+# One shared geocoder. Nominatim (OpenStreetMap) is free and needs no API key,
+# but it does require a descriptive user_agent and is rate limited to roughly
+# one request per second - fine for a "Confirm place" button a human clicks.
+_geolocator = Nominatim(user_agent="vedic-birth-chart-app", timeout=10) if Nominatim else None
+
+
+@app.route("/geocode", methods=["POST"])
+def geocode():
+    """Look up a place name and return its latitude/longitude as JSON."""
+    place = (request.form.get("place") or "").strip()
+
+    if not place:
+        return jsonify({"error": "Enter a birth city first."}), 400
+    if _geolocator is None:
+        return jsonify({"error": "geopy is not installed (pip install geopy)."}), 500
+
+    try:
+        location = _geolocator.geocode(place)
+    except (GeocoderServiceError, GeocoderTimedOut):
+        return jsonify({"error": "Lookup service unavailable, enter coordinates manually."}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    if location is None:
+        return jsonify({"error": f'Could not find "{place}".'}), 404
+
+    return jsonify({
+        "lat": round(location.latitude, 6),
+        "lng": round(location.longitude, 6),
+        "address": location.address,
+    })
 
 # ---------------------------------------------------------------------------
 # Progressive Web App: manifest, service worker, and app icons
@@ -908,6 +947,35 @@ PAGE_TEMPLATE = """
   }
   .segmented input:focus-visible + label { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+  /* Birth-city field + its "Confirm place" lookup button, side by side. */
+  .place-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .place-row input { flex: 1; min-width: 0; }
+  button.confirm-btn {
+    flex: 0 0 auto;
+    margin-top: 6px;
+    padding: 0 16px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: transform 0.12s, opacity 0.12s, border-color 0.12s;
+  }
+  button.confirm-btn:hover { border-color: var(--primary); }
+  button.confirm-btn:active { transform: scale(0.98); }
+  button.confirm-btn[disabled] { opacity: 0.6; cursor: progress; }
+
+  .geo-status { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .geo-status.ok { color: var(--primary); }
+  .geo-status.bad { color: #ef4444; }
+
   button.submit-btn {
     width: 100%;
     margin-top: 22px;
@@ -1107,8 +1175,12 @@ PAGE_TEMPLATE = """
     <label class="field-label" for="name">Name</label>
     <input type="text" id="name" name="name" value="{{ form.name }}" required>
 
-    <label class="field-label" for="city">Birth city <span style="font-weight:400; color:var(--muted-2);">(optional)</span></label>
-    <input type="text" id="city" name="city" value="{{ form.city }}" placeholder="e.g. Mumbai, India">
+    <label class="field-label" for="city">Birth city</label>
+    <div class="place-row">
+      <input type="text" id="city" name="city" value="{{ form.city }}" placeholder="e.g. Mumbai, India">
+      <button type="button" id="confirmPlaceBtn" class="confirm-btn">Confirm place</button>
+    </div>
+    <small class="geo-status" id="geoStatus">Type a city and hit Confirm place to fill in the coordinates.</small>
 
     <div class="row">
       <div>
@@ -1131,7 +1203,7 @@ PAGE_TEMPLATE = """
         <input type="number" step="any" id="lng" name="lng" value="{{ form.lng }}" placeholder="72.8777" required>
       </div>
     </div>
-    <small class="hint">Look these up on any map app (long-press a location to see coordinates).</small>
+    <small class="hint">Filled in automatically by "Confirm place", or type them in yourself.</small>
 
     <label class="field-label" for="tz">Timezone (IANA name)</label>
     <input type="text" id="tz" name="tz" value="{{ form.tz }}" placeholder="Asia/Kolkata" required>
@@ -1402,6 +1474,66 @@ PAGE_TEMPLATE = """
 </div>
 
 <script>
+  // "Confirm place" - geocode the typed birth city on the server (geopy /
+  // Nominatim) and drop the result straight into the lat/lng inputs.
+  (function () {
+    const btn = document.getElementById("confirmPlaceBtn");
+    const cityInput = document.getElementById("city");
+    const latInput = document.getElementById("lat");
+    const lngInput = document.getElementById("lng");
+    const status = document.getElementById("geoStatus");
+    if (!btn) return;
+
+    function setStatus(msg, kind) {
+      status.textContent = msg;
+      status.className = "geo-status" + (kind ? " " + kind : "");
+    }
+
+    async function confirmPlace() {
+      const place = cityInput.value.trim();
+      if (!place) {
+        setStatus("Enter a birth city first.", "bad");
+        cityInput.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      setStatus("Looking up " + place + "…", "");
+
+      try {
+        const res = await fetch("/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ place }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          setStatus(data.error || "Lookup failed.", "bad");
+          return;
+        }
+
+        latInput.value = data.lat;
+        lngInput.value = data.lng;
+        setStatus(data.address + " → " + data.lat + ", " + data.lng, "ok");
+      } catch (err) {
+        setStatus("Lookup failed - check your connection.", "bad");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", confirmPlace);
+
+    // Enter inside the city box should confirm the place, not submit the form.
+    cityInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        confirmPlace();
+      }
+    });
+  })();
+
   // Register the service worker (enables installability + basic offline shell).
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -1557,4 +1689,5 @@ def generate():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    #app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True, host="127.0.0.1", port=5000)
