@@ -33,18 +33,27 @@ Setup:
 
 Run:
     python app.py
-    then open http://127.0.0.1:5000 in your browser (or your machine's
-    LAN IP, e.g. http://192.168.x.x:5000, to try it on a phone).
+    then open http://127.0.0.1:5050 in your browser (or your machine's
+    LAN IP, e.g. http://192.168.x.x:5050, to try it on a phone). Port
+    5050 (not 5000) to avoid clashing with macOS's AirPlay Receiver,
+    which listens on port 5000 by default.
 """
 
 import os
 import json
 import base64
 import tempfile
-from flask import Flask, request, render_template_string, redirect, url_for, Response, jsonify
+import urllib.parse
+from functools import wraps
+from flask import (
+    Flask, request, render_template_string, redirect, url_for, Response,
+    jsonify, session,
+)
 
 from kerykeion import AstrologicalSubject
 import jyotichart as chart
+
+import db as storage
 
 try:
     from geopy.geocoders import Nominatim
@@ -54,6 +63,32 @@ except ImportError:  # geopy is optional - without it the app just loses lookup
     GeocoderServiceError = GeocoderTimedOut = Exception
 
 app = Flask(__name__)
+
+# Signs session cookies (used for the admin login). Set a real SECRET_KEY
+# env var in production - anyone who can guess this can forge an admin
+# session, so the fallback below is only OK for local development.
+app.secret_key = os.environ.get("SECRET_KEY", "dev-only-secret-change-me")
+
+storage.init_db()
+
+# Password for the /admin panel. Set ADMIN_PASSWORD in the environment
+# before deploying - the fallback here is only for local development.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    ADMIN_PASSWORD = "admin"
+    print(
+        "WARNING: ADMIN_PASSWORD is not set - the /admin panel is using the "
+        "insecure default password 'admin'. Set ADMIN_PASSWORD before deploying."
+    )
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_admin"):
+            return redirect(url_for("admin_login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
 
 # One shared geocoder. Nominatim (OpenStreetMap) is free and needs no API key,
 # but it does require a descriptive user_agent and is rate limited to roughly
@@ -86,6 +121,34 @@ def geocode():
         "lng": round(location.longitude, 6),
         "address": location.address,
     })
+
+
+@app.route("/save", methods=["POST"])
+def save_details():
+    """Explicit "Save details" button - stores the current form values so
+    they show up in /admin. Separate from /generate on purpose: generating a
+    chart should not silently persist anything unless the user asks for it.
+    """
+    form = {
+        "name": (request.form.get("name") or "").strip(),
+        "city": (request.form.get("city") or "").strip(),
+        "date": request.form.get("date", ""),
+        "time": request.form.get("time", ""),
+        "lat": request.form.get("lat", ""),
+        "lng": request.form.get("lng", ""),
+        "tz": (request.form.get("tz") or "").strip(),
+        "style": request.form.get("style", "south"),
+    }
+
+    if not form["name"]:
+        return jsonify({"error": "Enter a name first."}), 400
+
+    try:
+        record_id = storage.save_birth_record(form)
+    except Exception as db_err:
+        return jsonify({"error": f"Could not save: {db_err}"}), 500
+
+    return jsonify({"ok": True, "id": record_id})
 
 # ---------------------------------------------------------------------------
 # Progressive Web App: manifest, service worker, and app icons
@@ -132,9 +195,10 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v1";
+const CACHE_NAME = "vedic-chart-v2";
 const SHELL_URLS = [
   "/",
+  "/play-with-chart",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
@@ -196,6 +260,21 @@ def manifest():
 @app.route("/service-worker.js")
 def service_worker():
     return Response(SERVICE_WORKER_JS, mimetype="application/javascript")
+
+
+# "Play with Chart" - a standalone drag-and-drop South Indian chart page
+# (chart_playground.html, copied from the original horoscope-builder
+# prototype). It reads its planet positions from a `?positions=` JSON query
+# param via client-side JS (see build_playground_url), so the file itself
+# never needs server-side templating - it's served as-is.
+_PLAYGROUND_HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart_playground.html")
+with open(_PLAYGROUND_HTML_PATH, "r", encoding="utf-8") as _f:
+    PLAYGROUND_HTML = _f.read()
+
+
+@app.route("/play-with-chart")
+def play_with_chart():
+    return Response(PLAYGROUND_HTML, mimetype="text/html")
 
 
 @app.route("/icon-192.png")
@@ -284,6 +363,45 @@ def house_from_signs(planet_sign_abbr, ascendant_sign_abbr):
     asc_idx = SIGN_ORDER.index(ascendant_sign_abbr)
     planet_idx = SIGN_ORDER.index(planet_sign_abbr)
     return ((planet_idx - asc_idx) % 12) + 1
+
+
+# SIGN_NAME_MAP above misspells Sagittarius ("Saggitarius") - that's already
+# baked into other pages of the app, so it's left alone there, but the
+# playground page's sign list is spelled correctly and needs the fix.
+SIGN_NAME_FULL = dict(SIGN_NAME_MAP, Sag="Sagittarius")
+
+# Kerykeion attribute name -> short planet code used on the "Play with
+# Chart" playground page (chart_playground.html).
+PLAYGROUND_PLANET_CODE = {
+    "sun": "Sun", "moon": "Mon", "mars": "Mar", "mercury": "Mer",
+    "jupiter": "Jup", "venus": "Ven", "saturn": "Sat",
+}
+
+
+def build_rashi_positions(subject):
+    """Sun..Saturn, Rahu, Ketu and the Ascendant's Rashi (D1) sign, keyed by
+    the short planet codes the playground page's chart expects - e.g.
+    {"Asc": "Aries", "Sun": "Leo", "Mon": "Taurus", ...}.
+    """
+    ascendant_abbr = subject.first_house["sign"]
+    positions = {"Asc": SIGN_NAME_FULL[ascendant_abbr]}
+    for attr, code in PLAYGROUND_PLANET_CODE.items():
+        sign_abbr = getattr(subject, attr)["sign"]
+        positions[code] = SIGN_NAME_FULL[sign_abbr]
+
+    rahu_sign = get_rahu_data(subject)["sign"]
+    positions["Rahu"] = SIGN_NAME_FULL[rahu_sign]
+    rahu_idx = SIGN_ORDER.index(rahu_sign)
+    ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
+    positions["Ketu"] = SIGN_NAME_FULL[ketu_sign]
+    return positions
+
+
+def build_playground_url(subject):
+    """URL for the 'Play with Chart' button - the Rashi positions travel as
+    a JSON query param the playground page's own JS reads on load."""
+    positions = build_rashi_positions(subject)
+    return "/play-with-chart?positions=" + urllib.parse.quote(json.dumps(positions))
 
 
 def render_chart_svg(subject, style, output_dir):
@@ -481,6 +599,12 @@ COMBUSTION_ORBS = {
 }
 
 
+def circular_diff(a, b):
+    """Shortest angular distance (0-180) between two 0-360 degree longitudes."""
+    diff = abs(a - b) % 360.0
+    return min(diff, 360.0 - diff)
+
+
 def is_combust(label, planet_abs_pos, sun_abs_pos, retrograde):
     """Is this planet within its classical combustion orb of the Sun?"""
     orb = COMBUSTION_ORBS.get(label)
@@ -488,9 +612,7 @@ def is_combust(label, planet_abs_pos, sun_abs_pos, retrograde):
         return False
     if isinstance(orb, dict):
         orb = orb["retrograde"] if retrograde else orb["direct"]
-    diff = abs(planet_abs_pos - sun_abs_pos) % 360.0
-    diff = min(diff, 360.0 - diff)
-    return diff <= orb
+    return circular_diff(planet_abs_pos, sun_abs_pos) <= orb
 
 
 def deg_to_dms(deg):
@@ -674,6 +796,192 @@ def build_star_table(subject):
 
 
 # ---------------------------------------------------------------------------
+# Conjunctions - grahas (and the Ascendant) grouped by actual degree
+# separation, not merely by shared sign. Two bodies a couple of degrees
+# apart but straddling a sign boundary (e.g. 29 deg Aries / 1 deg Taurus)
+# are conjunct; two bodies in the same sign but many degrees apart are not.
+# ---------------------------------------------------------------------------
+
+# Widest orb (in degrees) at which two bodies still count as conjunct, with
+# tighter bands called out separately so a 20' pairing reads differently
+# from a near-9-degree one.
+CONJUNCTION_ORB_TIERS = [
+    (1.0, "Exact"),
+    (3.0, "Tight"),
+    (6.0, "Close"),
+    (10.0, "Wide"),
+]
+
+# Rank used to show the tightest conjunctions in a chart first.
+_CONJUNCTION_TIER_RANK = {label: i for i, (_, label) in enumerate(CONJUNCTION_ORB_TIERS)}
+
+
+def conjunction_tier(diff):
+    """Classify an angular separation into a conjunction tier, or None if
+    it's wider than the maximum orb (i.e. not a conjunction at all)."""
+    for limit, label in CONJUNCTION_ORB_TIERS:
+        if diff <= limit:
+            return label
+    return None
+
+
+def gather_chart_bodies(subject):
+    """The Ascendant plus every graha (7 classical + Rahu/Ketu), each as
+    (label, sign_abbr, degree_in_sign, abs_pos). Shared by both conjunction
+    views below.
+    """
+    bodies = []  # (label, sign_abbr, degree_in_sign, abs_pos)
+
+    asc = subject.first_house
+    bodies.append(("Ascendant", asc["sign"], asc["position"], asc["abs_pos"] % 360.0))
+
+    for attr, (_, symbol) in PLANETS.items():
+        p = getattr(subject, attr)
+        label = symbol_to_label(symbol)
+        bodies.append((label, p["sign"], p["position"], p["abs_pos"] % 360.0))
+
+    rahu_data = get_rahu_data(subject)
+    bodies.append(("Rahu", rahu_data["sign"], rahu_data["position"], rahu_data["abs_pos"] % 360.0))
+
+    rahu_idx = SIGN_ORDER.index(rahu_data["sign"])
+    ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
+    ketu_abs_pos = (rahu_data["abs_pos"] + 180.0) % 360.0
+    bodies.append(("Ketu", ketu_sign, ketu_abs_pos % 30.0, ketu_abs_pos))
+
+    return bodies
+
+
+def build_conjunctions(subject):
+    """Group the Ascendant and every graha into conjunction clusters based
+    on actual longitude, with a 10 degree maximum orb.
+
+    Returns a list of clusters (2+ bodies each), tightest first. Each
+    cluster lists its members (sorted by longitude, with sign + degree) and
+    every conjunct pair within it (sorted tightest-first).
+    """
+    bodies = gather_chart_bodies(subject)
+
+    info = {
+        label: {"sign": sign, "degree": deg_to_dms(deg), "abs_pos": pos}
+        for label, sign, deg, pos in bodies
+    }
+
+    # Edge between any two bodies within orb; a chain of near-conjunctions
+    # (A-B within orb, B-C within orb) is grouped into one cluster even if
+    # A and C themselves are wider apart than the orb.
+    labels = [b[0] for b in bodies]
+    adjacent = {label: [] for label in labels}
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            label_a, label_b = bodies[i][0], bodies[j][0]
+            diff = circular_diff(info[label_a]["abs_pos"], info[label_b]["abs_pos"])
+            if conjunction_tier(diff) is not None:
+                adjacent[label_a].append(label_b)
+                adjacent[label_b].append(label_a)
+
+    visited = set()
+    clusters = []
+    for label in labels:
+        if label in visited or not adjacent[label]:
+            continue
+        stack, members = [label], set()
+        while stack:
+            cur = stack.pop()
+            if cur in members:
+                continue
+            members.add(cur)
+            visited.add(cur)
+            stack.extend(n for n in adjacent[cur] if n not in members)
+        clusters.append(members)
+
+    results = []
+    for members in clusters:
+        ordered = sorted(members, key=lambda l: info[l]["abs_pos"])
+
+        pairs = []
+        member_list = sorted(members)
+        for i in range(len(member_list)):
+            for j in range(i + 1, len(member_list)):
+                a, b = member_list[i], member_list[j]
+                diff = circular_diff(info[a]["abs_pos"], info[b]["abs_pos"])
+                tier = conjunction_tier(diff)
+                if tier is not None:
+                    pairs.append({"a": a, "b": b, "orb": deg_to_dms(diff), "tier": tier, "_diff": diff})
+        pairs.sort(key=lambda p: p["_diff"])
+        for p in pairs:
+            del p["_diff"]
+
+        signs_seen = []
+        for label in ordered:
+            sign_name = SIGN_NAME_MAP[info[label]["sign"]]
+            if not signs_seen or signs_seen[-1] != sign_name:
+                signs_seen.append(sign_name)
+
+        results.append({
+            "members": [
+                {"planet": label, "sign": SIGN_NAME_MAP[info[label]["sign"]], "degree": info[label]["degree"]}
+                for label in ordered
+            ],
+            "pairs": pairs,
+            "signs": " → ".join(signs_seen),
+            "tightest_tier": pairs[0]["tier"] if pairs else None,
+        })
+
+    results.sort(key=lambda c: _CONJUNCTION_TIER_RANK.get(c["tightest_tier"], 99))
+    return results
+
+
+def build_sign_conjunctions(subject):
+    """Group the Ascendant and every graha by shared sign (rashi) - the
+    traditional whole-sign 'yuti', where any two bodies in the same sign
+    count as conjunct regardless of how many degrees apart they sit within
+    it. Each group lists its members (sorted by degree) and every pairwise
+    degree difference, tightest first.
+
+    This complements build_conjunctions(): that one can miss a same-sign
+    pair sitting 25 degrees apart (arguably not a "real" conjunction) and
+    catches a cross-boundary pair a sign-only view would miss - here every
+    same-sign pair is shown, with its degree gap made explicit so it's easy
+    to see just how tight (or loose) each one actually is.
+    """
+    bodies = gather_chart_bodies(subject)
+
+    groups = {}  # sign_abbr -> [(label, degree_in_sign), ...]
+    for label, sign, deg, _abs_pos in bodies:
+        groups.setdefault(sign, []).append((label, deg))
+
+    results = []
+    for sign, members in groups.items():
+        if len(members) < 2:
+            continue
+        ordered = sorted(members, key=lambda m: m[1])
+
+        pairs = []
+        member_list = sorted(members, key=lambda m: m[0])
+        for i in range(len(member_list)):
+            for j in range(i + 1, len(member_list)):
+                a_label, a_deg = member_list[i]
+                b_label, b_deg = member_list[j]
+                diff = abs(a_deg - b_deg)
+                pairs.append({"a": a_label, "b": b_label, "diff": deg_to_dms(diff), "_diff": diff})
+        pairs.sort(key=lambda p: p["_diff"])
+        for p in pairs:
+            del p["_diff"]
+
+        results.append({
+            "sign": SIGN_NAME_MAP[sign],
+            "_sign_rank": SIGN_ORDER.index(sign),
+            "members": [{"planet": label, "degree": deg_to_dms(deg)} for label, deg in ordered],
+            "pairs": pairs,
+        })
+
+    results.sort(key=lambda r: r["_sign_rank"])
+    for r in results:
+        del r["_sign_rank"]
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Vimshottari Mahadasha calculation
 # ---------------------------------------------------------------------------
 
@@ -748,24 +1056,26 @@ PAGE_TEMPLATE = """
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VedicChart">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0d17;
-    --surface: #151829;
-    --surface-2: #1c2038;
-    --surface-3: #232849;
-    --border: #282d4c;
-    --text: #f3f2fa;
-    --muted: #9a9db8;
-    --muted-2: #6d7091;
-    --primary: #8b5cf6;
-    --primary-2: #ec4899;
-    --primary-grad: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
-    --primary-grad-soft: linear-gradient(135deg, rgba(139,92,246,0.16) 0%, rgba(236,72,153,0.16) 100%);
-    --gold: #fbbf24;
-    --danger-bg: #2a1420;
-    --danger-border: #5c2438;
-    --danger-text: #ffb4c6;
+    --bg: #12111e;
+    --surface: #1a1830;
+    --surface-2: #211f38;
+    --surface-3: #282546;
+    --border: rgba(212,175,55,0.25);
+    --text: #e0d5c5;
+    --muted: rgba(224,213,197,0.65);
+    --muted-2: rgba(224,213,197,0.4);
+    --primary: #d4af37;
+    --primary-2: #e0c477;
+    --primary-grad: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    --primary-grad-soft: linear-gradient(135deg, rgba(212,175,55,0.16) 0%, rgba(224,196,119,0.16) 100%);
+    --on-primary: #1c1710;
+    --gold: #d4af37;
+    --danger-bg: rgba(255,50,30,0.1);
+    --danger-border: rgba(255,80,60,0.6);
+    --danger-text: #ff8877;
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 10px;
@@ -777,11 +1087,9 @@ PAGE_TEMPLATE = """
   body {
     margin: 0;
     min-height: 100vh;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background:
-      radial-gradient(700px circle at 15% -10%, rgba(139,92,246,0.28), transparent 55%),
-      radial-gradient(700px circle at 100% 0%, rgba(236,72,153,0.20), transparent 55%),
-      var(--bg);
+      radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, var(--bg) 100%);
     background-attachment: fixed;
     color: var(--text);
     padding-top: var(--safe-t);
@@ -799,7 +1107,7 @@ PAGE_TEMPLATE = """
     align-items: center;
     gap: 12px;
     padding: calc(14px + var(--safe-t)) 16px 14px;
-    background: rgba(11, 13, 23, 0.72);
+    background: rgba(18, 17, 30, 0.72);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
@@ -808,17 +1116,20 @@ PAGE_TEMPLATE = """
     width: 34px; height: 34px;
     border-radius: 10px;
     flex-shrink: 0;
-    box-shadow: 0 4px 14px rgba(139,92,246,0.35);
+    box-shadow: 0 4px 14px rgba(212,175,55,0.35);
   }
   .app-bar__titles { flex: 1; min-width: 0; }
   .app-bar__title {
+    font-family: 'Cinzel', serif;
     font-size: 15px;
     font-weight: 700;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.5px;
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--gold);
+    text-shadow: 0 0 16px rgba(212,175,55,0.35);
   }
   .app-bar__subtitle {
     font-size: 11.5px;
@@ -833,17 +1144,42 @@ PAGE_TEMPLATE = """
     display: none;
     align-items: center;
     gap: 6px;
-    padding: 8px 12px;
-    font-size: 12.5px;
+    padding: 8px 14px;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
     font-weight: 600;
-    color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
+    letter-spacing: 0.06em;
+    color: var(--primary-2);
+    background: rgba(212,175,55,0.08);
+    border: 1.5px solid rgba(212,175,55,0.5);
     border-radius: 999px;
     cursor: pointer;
+    transition: all 0.2s;
   }
   .install-btn.visible { display: inline-flex; }
+  .install-btn:hover { background: rgba(212,175,55,0.18); border-color: var(--gold); color: #ffe060; }
   .install-btn:active { transform: scale(0.96); }
+
+  .admin-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #a9c3ff;
+    background: rgba(90,140,255,0.08);
+    border: 1.5px solid rgba(120,170,255,0.5);
+    border-radius: 999px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .admin-btn:hover { background: rgba(90,140,255,0.18); border-color: #7aa2ff; color: #cfe0ff; }
+  .admin-btn:active { transform: scale(0.96); }
 
   .layout {
     max-width: 1180px;
@@ -868,16 +1204,19 @@ PAGE_TEMPLATE = """
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 20px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.35);
   }
   .form-card { padding: 22px 20px 20px; }
 
   .field-label {
     display: block;
-    font-size: 12.5px;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--muted);
     margin: 16px 0 7px;
-    letter-spacing: 0.1px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .field-label:first-of-type { margin-top: 0; }
 
@@ -888,6 +1227,7 @@ PAGE_TEMPLATE = """
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
+    font-family: 'Lato', sans-serif;
     font-size: 16px; /* >=16px prevents iOS auto-zoom on focus */
     transition: border-color 0.15s, box-shadow 0.15s;
     -webkit-appearance: none;
@@ -898,7 +1238,7 @@ PAGE_TEMPLATE = """
   input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.18);
+    box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.18);
   }
 
   .row { display: flex; gap: 10px; }
@@ -932,8 +1272,10 @@ PAGE_TEMPLATE = """
     flex: 1;
     text-align: center;
     padding: 10px 4px;
-    font-size: 12.5px;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
     font-weight: 600;
+    letter-spacing: 0.04em;
     color: var(--muted);
     border-radius: 8px;
     cursor: pointer;
@@ -942,8 +1284,8 @@ PAGE_TEMPLATE = """
   }
   .segmented input:checked + label {
     background: var(--primary-grad);
-    color: #fff;
-    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+    color: var(--on-primary);
+    box-shadow: 0 4px 14px rgba(212, 175, 55, 0.35);
   }
   .segmented input:focus-visible + label { outline: 2px solid var(--primary); outline-offset: 2px; }
 
@@ -960,8 +1302,10 @@ PAGE_TEMPLATE = """
     padding: 0 16px;
     background: var(--surface-2);
     color: var(--text);
+    font-family: 'Cinzel', serif;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 12px;
+    letter-spacing: 0.03em;
     white-space: nowrap;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -974,24 +1318,49 @@ PAGE_TEMPLATE = """
 
   .geo-status { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
   .geo-status.ok { color: var(--primary); }
-  .geo-status.bad { color: #ef4444; }
+  .geo-status.bad { color: #ff6655; }
+
+  button.save-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 12px;
+    background: transparent;
+    color: var(--text);
+    font-family: 'Cinzel', serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: transform 0.12s, border-color 0.12s, opacity 0.12s;
+  }
+  button.save-btn:hover { border-color: var(--primary); }
+  button.save-btn:active { transform: scale(0.98); }
+  button.save-btn[disabled] { opacity: 0.6; cursor: progress; }
+
+  .save-status { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .save-status.ok { color: var(--primary); }
+  .save-status.bad { color: #ff6655; }
 
   button.submit-btn {
     width: 100%;
     margin-top: 22px;
     padding: 15px;
     background: var(--primary-grad);
-    color: #fff;
+    color: var(--on-primary);
+    font-family: 'Cinzel', serif;
     font-weight: 700;
-    font-size: 15.5px;
-    letter-spacing: 0.2px;
+    font-size: 14.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     border: none;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    box-shadow: 0 8px 24px rgba(139, 92, 246, 0.35);
+    box-shadow: 0 8px 24px rgba(212, 175, 55, 0.35);
     transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
   }
-  button.submit-btn:active { transform: scale(0.98); box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3); }
+  button.submit-btn:active { transform: scale(0.98); box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3); }
 
   .results { min-height: 200px; }
   .placeholder-card {
@@ -1000,7 +1369,7 @@ PAGE_TEMPLATE = """
     color: var(--muted);
     font-size: 14px;
   }
-  .placeholder-card .ph-icon { font-size: 34px; margin-bottom: 10px; opacity: 0.7; }
+  .placeholder-card .ph-icon { font-size: 34px; margin-bottom: 10px; opacity: 0.7; color: var(--gold); }
 
   .error {
     background: var(--danger-bg);
@@ -1029,9 +1398,23 @@ PAGE_TEMPLATE = """
   .meta-pill b { color: var(--text); font-weight: 700; }
   .meta-pill.accent {
     background: var(--primary-grad-soft);
-    border-color: rgba(139, 92, 246, 0.35);
+    border-color: rgba(212, 175, 55, 0.35);
     color: var(--text);
   }
+  .meta-pill.playground-btn {
+    background: var(--primary-grad);
+    border-color: transparent;
+    color: var(--on-primary);
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s;
+    box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3);
+  }
+  .meta-pill.playground-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(212, 175, 55, 0.4); }
+  .meta-pill.playground-btn:active { transform: scale(0.98); }
 
   .charts-grid {
     display: grid;
@@ -1043,23 +1426,27 @@ PAGE_TEMPLATE = """
     .charts-grid { grid-template-columns: 1fr 1fr; }
   }
   .chart-card {
-    background: #f4f2fb;
+    background: #efe4c9;
     border-radius: var(--radius-md);
     padding: 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(212,175,55,0.2);
   }
   .chart-card h3 {
     margin: 0 0 10px;
-    color: #4c1d95;
-    font-size: 14px;
+    color: #7a5c10;
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
     font-weight: 700;
+    letter-spacing: 0.03em;
   }
   .chart-card svg { width: 100%; height: auto; display: block; margin: 0 auto; }
 
   .section-title {
-    color: var(--text);
-    font-size: 15px;
+    font-family: 'Cinzel', serif;
+    color: var(--gold);
+    font-size: 14px;
     font-weight: 700;
+    letter-spacing: 0.06em;
     margin: 30px 0 4px;
     display: flex;
     align-items: center;
@@ -1081,11 +1468,12 @@ PAGE_TEMPLATE = """
     white-space: nowrap;
   }
   th {
+    font-family: 'Cinzel', serif;
     color: var(--muted);
     font-weight: 700;
-    font-size: 11px;
+    font-size: 10.5px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     background: var(--surface-2);
     position: sticky;
     top: 0;
@@ -1110,9 +1498,9 @@ PAGE_TEMPLATE = """
     transition: transform 0.15s ease;
   }
   .dasha-row.expanded > td:first-child .toggle-arrow { transform: rotate(90deg); }
-  .dasha-row.level-1 { background: rgba(139, 92, 246, 0.04); }
-  .dasha-row.level-2 { background: rgba(139, 92, 246, 0.07); }
-  .dasha-row.level-3 { background: rgba(139, 92, 246, 0.10); }
+  .dasha-row.level-1 { background: rgba(212, 175, 55, 0.05); }
+  .dasha-row.level-2 { background: rgba(212, 175, 55, 0.09); }
+  .dasha-row.level-3 { background: rgba(212, 175, 55, 0.13); }
   .dasha-row.level-1 td:first-child { padding-left: 26px; }
   .dasha-row.level-2 td:first-child { padding-left: 42px; }
   .dasha-row.level-3 td:first-child { padding-left: 58px; cursor: default; }
@@ -1126,14 +1514,17 @@ PAGE_TEMPLATE = """
     font-size: 13px;
   }
   .houses-box .placeholder-small { color: var(--muted); text-align: center; padding: 10px 0; }
+  .houses-box-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .houses-box-row .planet-block { flex: 1 1 260px; margin-bottom: 0; }
   .dasha-level-block { margin-bottom: 16px; }
   .dasha-level-block:last-child { margin-bottom: 0; }
   .dl-heading {
+    font-family: 'Cinzel', serif;
     color: var(--primary-2);
     font-weight: 700;
-    font-size: 11.5px;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     margin-bottom: 8px;
   }
   .dl-period {
@@ -1152,11 +1543,30 @@ PAGE_TEMPLATE = """
     margin-bottom: 8px;
   }
   .planet-block:last-child { margin-bottom: 0; }
-  .planet-name { font-weight: 700; margin-bottom: 6px; }
+  .planet-name { font-family: 'Cinzel', serif; font-weight: 700; margin-bottom: 6px; }
+  .planet-line { font-weight: 600; color: var(--text); }
   .detail-line { padding: 2px 0; color: var(--text); }
   .detail-line .dl-label { display: inline-block; min-width: 88px; color: var(--muted); }
   .detail-line em { color: var(--muted); font-style: normal; font-size: 11px; }
   .muted-line { color: var(--muted); font-size: 12px; }
+
+  .conj-tier {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-family: 'Cinzel', serif;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+  .conj-tier-exact { background: var(--primary-grad); color: var(--on-primary); }
+  .conj-tier-tight { background: var(--primary-grad-soft); color: var(--primary-2); }
+  .conj-tier-close { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+  .conj-tier-wide { background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+  .conj-pairs { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -1167,6 +1577,7 @@ PAGE_TEMPLATE = """
     <p class="app-bar__title">Vedic Birth Chart</p>
     <p class="app-bar__subtitle">Sidereal &middot; Lahiri ayanamsa</p>
   </div>
+  <a class="admin-btn" href="/admin">&#9881; Admin</a>
   <button id="installBtn" class="install-btn" type="button">&#128241; Install</button>
 </div>
 
@@ -1220,6 +1631,8 @@ PAGE_TEMPLATE = """
     </div>
 
     <button type="submit" class="submit-btn">Generate Chart</button>
+    <button type="button" id="saveDetailsBtn" class="save-btn">Save details</button>
+    <small class="save-status" id="saveStatus">Saves this person's details so they show up in the admin panel - doesn't generate a chart.</small>
   </form>
 
   <div class="results">
@@ -1231,6 +1644,9 @@ PAGE_TEMPLATE = """
         <span class="meta-pill">{{ form.date }} &middot; {{ form.time }}</span>
         <span class="meta-pill accent">Rashi Asc: <b>{{ ascendant }}</b></span>
         <span class="meta-pill accent">Navamsa Asc: <b>{{ navamsa_ascendant }}</b></span>
+        {% if playground_url %}
+          <a class="meta-pill playground-btn" href="{{ playground_url }}" target="_blank" rel="noopener">🪐 Play with Chart</a>
+        {% endif %}
       </div>
 
       <div class="charts-grid">
@@ -1307,6 +1723,61 @@ PAGE_TEMPLATE = """
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
 
+      <div class="section-title">Conjunctions &ndash; By Degree (Orb)</div>
+      <small class="hint">
+        Grahas (and the Ascendant) within 10&deg; of each other, worked out from
+        actual longitude - not just a shared sign. Two bodies a couple of
+        degrees apart but straddling a sign boundary still count; two bodies
+        in the same sign but many degrees apart do not. See "By Sign" below
+        for the traditional whole-sign view.
+      </small>
+      {% if conjunctions %}
+      <div class="houses-box houses-box-row">
+        {% for c in conjunctions %}
+        <div class="planet-block">
+          <div class="planet-name">
+            {{ c.members | map(attribute='planet') | join(' + ') }}
+            <span class="conj-tier conj-tier-{{ c.tightest_tier | lower }}">{{ c.tightest_tier }}</span>
+          </div>
+          <div class="detail-line"><span class="dl-label">Sign(s)</span>{{ c.signs }}</div>
+          {% for m in c.members %}
+          <div class="detail-line"><span class="dl-label">{{ m.planet }}</span>{{ m.degree }} {{ m.sign }}</div>
+          {% endfor %}
+          <div class="muted-line conj-pairs">
+            {% for p in c.pairs %}{{ p.a }}&ndash;{{ p.b }}: {{ p.orb }} apart ({{ p.tier }}){% if not loop.last %} &middot; {% endif %}{% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="houses-box"><div class="placeholder-small">No conjunctions within 10&deg; in this chart.</div></div>
+      {% endif %}
+
+      <div class="section-title">Conjunctions &ndash; By Sign (Rashi)</div>
+      <small class="hint">
+        The traditional whole-sign yuti: every pair of grahas (and the
+        Ascendant) sharing a sign, however many degrees apart within it -
+        with that gap shown alongside, so a tight 2&deg; pairing and a loose
+        25&deg; one in the same sign aren't lumped together as equivalent.
+      </small>
+      {% if sign_conjunctions %}
+      <div class="houses-box houses-box-row">
+        {% for s in sign_conjunctions %}
+        <div class="planet-block">
+          <div class="planet-name">{{ s.sign }}</div>
+          {% for m in s.members %}
+          <div class="detail-line"><span class="dl-label">{{ m.planet }}</span>{{ m.degree }}</div>
+          {% endfor %}
+          <div class="muted-line conj-pairs">
+            {% for p in s.pairs %}{{ p.a }}&ndash;{{ p.b }}: {{ p.diff }} apart{% if not loop.last %} &middot; {% endif %}{% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="houses-box"><div class="placeholder-small">No two bodies share a sign in this chart.</div></div>
+      {% endif %}
+
       <script>
         (function () {
           const DASHA_ORDER = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"];
@@ -1334,9 +1805,6 @@ PAGE_TEMPLATE = """
           function housesList(arr) {
             return arr.map(ordinal).join(", ");
           }
-          function plural(arr) {
-            return arr.length > 1 ? "Houses" : "House";
-          }
 
           function renderPlanetBlock(label, info) {
             if (!info) {
@@ -1346,21 +1814,30 @@ PAGE_TEMPLATE = """
             if (info.type === "classical") {
               return `
                 <div class="planet-block">
-                  <div class="planet-name">${label}</div>
-                  <div class="detail-line"><span class="dl-label">Placement</span>${ordinal(info.placement)} House</div>
-                  <div class="detail-line"><span class="dl-label">Aspects</span>${housesList(info.aspects)} ${plural(info.aspects)}</div>
-                  <div class="detail-line"><span class="dl-label">Lordship</span>${housesList(info.lordship)} ${plural(info.lordship)}</div>
+                  <div class="planet-line">${label} = Lord of ${housesList(info.lordship)} = Placement - ${ordinal(info.placement)} = Aspects - ${housesList(info.aspects)}</div>
                 </div>`;
             }
-            const connRows = info.connections.map((c) => `
-              <div class="detail-line">
-                <span class="dl-label">${c.planet} <em>(${c.roles.join(", ")})</em></span>${housesList(c.houses)} ${plural(c.houses)}
-              </div>`).join("");
+            // Rahu/Ketu: same "= clause = clause" single-line pattern as the
+            // classical grahas, but built from their connections (a node has
+            // no lordship/aspects of its own) - dispositor of the sign it
+            // occupies, placement, any planet conjunct with it, and any
+            // planet whose aspect lands on its house.
+            const dispositorConn = info.connections.find((c) => c.roles.includes("dispositor"));
+            const conjunctConns = info.connections.filter((c) => c.roles.includes("conjunct"));
+            const aspectingConns = info.connections.filter((c) => c.roles.includes("aspecting"));
+            const connStr = (conns) => conns.map((c) => `${housesList(c.houses)} (${c.planet})`).join("; ");
+
+            const dispositorStr = dispositorConn
+              ? `Dispositor (${dispositorConn.planet}) of ${housesList(dispositorConn.houses)}`
+              : "Dispositor - none";
+
+            let line = `${label} = ${dispositorStr} = Placement - ${ordinal(info.placement)} House (${info.sign})`;
+            if (conjunctConns.length) line += ` = Conjunct - ${connStr(conjunctConns)}`;
+            line += ` = Aspected by - ${aspectingConns.length ? connStr(aspectingConns) : "none"}`;
+
             return `
               <div class="planet-block">
-                <div class="planet-name">${label}</div>
-                <div class="detail-line"><span class="dl-label">Placement</span>${ordinal(info.placement)} House (${info.sign})</div>
-                ${connRows || '<div class="muted-line">No connected planets found.</div>'}
+                <div class="planet-line">${line}</div>
               </div>`;
           }
 
@@ -1534,6 +2011,56 @@ PAGE_TEMPLATE = """
     });
   })();
 
+  // "Save details" - stores the current form values in the database so they
+  // show up in /admin, without generating a chart or leaving this page.
+  (function () {
+    const btn = document.getElementById("saveDetailsBtn");
+    const status = document.getElementById("saveStatus");
+    if (!btn) return;
+
+    const defaultStatus = status.textContent;
+
+    function setStatus(msg, kind) {
+      status.textContent = msg;
+      status.className = "save-status" + (kind ? " " + kind : "");
+    }
+
+    async function saveDetails() {
+      const form = btn.closest("form");
+      const data = new FormData(form);
+
+      if (!data.get("name")?.trim()) {
+        setStatus("Enter a name first.", "bad");
+        document.getElementById("name").focus();
+        return;
+      }
+
+      btn.disabled = true;
+      setStatus("Saving…", "");
+
+      try {
+        const res = await fetch("/save", {
+          method: "POST",
+          body: new URLSearchParams(data),
+        });
+        const result = await res.json();
+
+        if (!res.ok) {
+          setStatus(result.error || "Could not save.", "bad");
+          return;
+        }
+
+        setStatus("Saved - visible in the admin panel now.", "ok");
+      } catch (err) {
+        setStatus("Could not save - check your connection.", "bad");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", saveDetails);
+  })();
+
   // Register the service worker (enables installability + basic offline shell).
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -1582,6 +2109,132 @@ PAGE_TEMPLATE = """
 </html>
 """
 
+# ---------------------------------------------------------------------------
+# Admin panel: password-gated login + a card view of every saved record.
+# ---------------------------------------------------------------------------
+
+ADMIN_LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin sign in - Vedic Birth Chart</title>
+<style>
+  :root {
+    --bg: #0b0d17; --surface: #151829; --border: #282d4c;
+    --text: #f3f2fa; --muted: #9a9db8; --primary: #7c6bf2; --danger: #ff6b81;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  form {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px; width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 14px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.3rem; }
+  label { font-size: .85rem; color: var(--muted); }
+  input[type=password] {
+    width: 100%; margin-top: 4px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem;
+  }
+  button {
+    padding: 10px 12px; border-radius: 10px; border: none; background: var(--primary);
+    color: #fff; font-weight: 600; cursor: pointer; font-size: 1rem;
+  }
+  .error { color: var(--danger); font-size: .85rem; margin: 0; }
+</style>
+</head>
+<body>
+<form method="POST" action="{{ url_for('admin_login') }}">
+  <h1>Admin sign in</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <div>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus required>
+  </div>
+  <input type="hidden" name="next" value="{{ next }}">
+  <button type="submit">Sign in</button>
+</form>
+</body>
+</html>
+"""
+
+ADMIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin - Stored Birth Details</title>
+<style>
+  :root {
+    --bg: #0b0d17; --surface: #151829; --border: #282d4c;
+    --text: #f3f2fa; --muted: #9a9db8; --primary: #7c6bf2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; gap: 12px; flex-wrap: wrap;
+  }
+  .top-bar h1 { font-size: 1.4rem; margin: 0; }
+  .top-bar .links { display: flex; gap: 10px; }
+  .top-bar a {
+    color: var(--muted); font-size: .85rem; text-decoration: none;
+    border: 1px solid var(--border); padding: 6px 12px; border-radius: 8px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 1.05rem; }
+  .card p.city { margin: 0 0 4px; font-size: .85rem; color: var(--muted); }
+  .card .row { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); }
+  .card a.go-btn {
+    margin-top: 10px; text-align: center; background: var(--primary); color: #fff;
+    text-decoration: none; padding: 9px 12px; border-radius: 9px; font-weight: 600; font-size: .9rem;
+  }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <h1>Stored birth details ({{ records|length }})</h1>
+  <div class="links">
+    <a href="{{ url_for('index') }}">New chart</a>
+    <a href="{{ url_for('admin_logout') }}">Log out</a>
+  </div>
+</div>
+{% if records %}
+<div class="grid">
+  {% for r in records %}
+  <div class="card">
+    <h2>{{ r.name }}</h2>
+    <p class="city">{{ r.city or "Unknown city" }}</p>
+    <div class="row"><span>Date of birth</span><span>{{ r.date }}</span></div>
+    <div class="row"><span>Time of birth</span><span>{{ r.time }}</span></div>
+    <div class="row"><span>Lat, Lng</span><span>{{ r.lat }}, {{ r.lng }}</span></div>
+    <div class="row"><span>Timezone</span><span>{{ r.tz }}</span></div>
+    <div class="row"><span>Saved</span><span>{{ r.updated_at.strftime("%Y-%m-%d %H:%M") if r.updated_at else "" }}</span></div>
+    <a class="go-btn" href="{{ url_for('index', record_id=r.id) }}">Go to chart</a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">No records saved yet - generate a chart on the main page to see it here.</p>
+{% endif %}
+</body>
+</html>
+"""
+
 DEFAULT_FORM = {
     "name": "Jane Doe",
     "city": "Mumbai",
@@ -1596,10 +2249,30 @@ DEFAULT_FORM = {
 
 @app.route("/", methods=["GET"])
 def index():
+    # ?record_id=<id> comes from the admin panel's "Go to chart" button -
+    # prefill the form from a previously saved record instead of the demo
+    # defaults. The chart still isn't generated until the user hits Generate.
+    form = DEFAULT_FORM
+    record_id = request.args.get("record_id", type=int)
+    if record_id:
+        record = storage.get_birth_record(record_id)
+        if record:
+            form = {
+                "name": record["name"] or "",
+                "city": record["city"] or "",
+                "date": record["date"] or "",
+                "time": record["time"] or "",
+                "lat": record["lat"] or "",
+                "lng": record["lng"] or "",
+                "tz": record["tz"] or "",
+                "style": record["style"] or "south",
+            }
+
     return render_template_string(
-        PAGE_TEMPLATE, form=DEFAULT_FORM, charts=None, error=None,
+        PAGE_TEMPLATE, form=form, charts=None, error=None,
         ascendant=None, navamsa_ascendant=None, star_table=None,
-        dasha_table=None, dasha_house_json="{}",
+        dasha_table=None, dasha_house_json="{}", conjunctions=None,
+        sign_conjunctions=None, playground_url=None,
     )
 
 
@@ -1659,6 +2332,8 @@ def generate():
                 charts.append((label9, svg9))
 
         star_table = build_star_table(subject)
+        conjunctions = build_conjunctions(subject)
+        sign_conjunctions = build_sign_conjunctions(subject)
 
         from datetime import datetime as _dt
         birth_dt = _dt(year, month, day, hour, minute)
@@ -1674,20 +2349,49 @@ def generate():
         ascendant_abbr = subject.first_house["sign"]
         dasha_house_map = build_dasha_house_map(subject, ascendant_abbr)
         dasha_house_json = json.dumps(dasha_house_map)
+        playground_url = build_playground_url(subject)
 
         return render_template_string(
             PAGE_TEMPLATE, form=form, charts=charts, error=None, ascendant=ascendant,
             navamsa_ascendant=navamsa_ascendant, star_table=star_table,
             dasha_table=dasha_table, dasha_house_json=dasha_house_json,
+            conjunctions=conjunctions, sign_conjunctions=sign_conjunctions,
+            playground_url=playground_url,
         )
 
     except Exception as e:
         return render_template_string(
             PAGE_TEMPLATE, form=form, charts=None, error=str(e), ascendant=None,
             navamsa_ascendant=None, star_table=None, dasha_table=None, dasha_house_json="{}",
+            conjunctions=None, sign_conjunctions=None, playground_url=None,
         )
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    next_url = request.args.get("next") or request.form.get("next") or url_for("admin_panel")
+    error = None
+    if request.method == "POST":
+        if request.form.get("password") == ADMIN_PASSWORD:
+            session["is_admin"] = True
+            return redirect(next_url)
+        error = "Wrong password."
+    return render_template_string(ADMIN_LOGIN_TEMPLATE, error=error, next=next_url)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect(url_for("admin_login"))
+
+
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    records = storage.list_birth_records()
+    return render_template_string(ADMIN_TEMPLATE, records=records)
 
 
 if __name__ == "__main__":
     #app.run(debug=True, host="0.0.0.0")
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=True, host="127.0.0.1", port=5050)
