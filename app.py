@@ -1316,6 +1316,32 @@ PAGE_TEMPLATE = """
   button.confirm-btn:active { transform: scale(0.98); }
   button.confirm-btn[disabled] { opacity: 0.6; cursor: progress; }
 
+  /* "Date of birth" label + its "Now" shortcut button, side by side. */
+  .field-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .field-label-row .field-label { margin: 0; }
+  button.now-btn {
+    flex: 0 0 auto;
+    padding: 2px 10px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-family: 'Cinzel', serif;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: transform 0.12s, opacity 0.12s, border-color 0.12s;
+  }
+  button.now-btn:hover { border-color: var(--primary); }
+  button.now-btn:active { transform: scale(0.98); }
+
   .geo-status { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
   .geo-status.ok { color: var(--primary); }
   .geo-status.bad { color: #ff6655; }
@@ -1595,7 +1621,10 @@ PAGE_TEMPLATE = """
 
     <div class="row">
       <div>
-        <label class="field-label" for="date">Date of birth</label>
+        <div class="field-label-row">
+          <label class="field-label" for="date">Date of birth</label>
+          <button type="button" id="nowBtn" class="now-btn">Now</button>
+        </div>
         <input type="date" id="date" name="date" value="{{ form.date }}" required>
       </div>
       <div>
@@ -2008,6 +2037,22 @@ PAGE_TEMPLATE = """
         e.preventDefault();
         confirmPlace();
       }
+    });
+  })();
+
+  // "Now" - fills the date/time fields with the current local date and time.
+  (function () {
+    const btn = document.getElementById("nowBtn");
+    const dateInput = document.getElementById("date");
+    const timeInput = document.getElementById("time");
+    if (!btn) return;
+
+    function pad(n) { return String(n).padStart(2, "0"); }
+
+    btn.addEventListener("click", () => {
+      const now = new Date();
+      dateInput.value = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+      timeInput.value = pad(now.getHours()) + ":" + pad(now.getMinutes());
     });
   })();
 
