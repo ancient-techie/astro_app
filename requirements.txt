@@ -5,3 +5,9 @@ jyotichart
 geopy
 sqlalchemy
 psycopg2-binary
+# 5.x is where ReportLab grew HarfBuzz shaping, which the Tamil PDF needs.
+reportlab>=5
+svglib
+# Complex-script shaping for the Tamil PDF export - ReportLab picks it up
+# automatically at import time. Without it the export falls back to English.
+uharfbuzz
