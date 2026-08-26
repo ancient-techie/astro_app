@@ -40,6 +40,7 @@ Run:
 """
 
 import os
+import re
 import json
 import base64
 import tempfile
@@ -54,6 +55,7 @@ from kerykeion import AstrologicalSubject
 import jyotichart as chart
 
 import db as storage
+import i18n
 
 try:
     from geopy.geocoders import Nominatim
@@ -61,6 +63,11 @@ try:
 except ImportError:  # geopy is optional - without it the app just loses lookup
     Nominatim = None
     GeocoderServiceError = GeocoderTimedOut = Exception
+
+try:
+    import chart_pdf
+except ImportError:  # reportlab/svglib missing - the app loses only PDF export
+    chart_pdf = None
 
 app = Flask(__name__)
 
@@ -195,10 +202,11 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v2";
+const CACHE_NAME = "vedic-chart-v3";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
+  "/i18n.js",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
@@ -260,6 +268,293 @@ def manifest():
 @app.route("/service-worker.js")
 def service_worker():
     return Response(SERVICE_WORKER_JS, mimetype="application/javascript")
+
+
+# ---------------------------------------------------------------------------
+# /i18n.js - the shared Tamil/English runtime
+# ---------------------------------------------------------------------------
+# Every page (the generator, both admin pages, and chart_playground.html)
+# loads this one script, so all of them translate against the single set of
+# dictionaries in i18n.py rather than keeping their own copies.
+#
+# Markup contract:
+#   data-i18n="key"                   -> textContent = t(key)
+#   data-i18n-html="key"              -> innerHTML   = t(key)   (string has markup)
+#   data-i18n-attr="placeholder:key"  -> setAttribute, semicolon-separated pairs
+#   data-i18n-term="kind:Value"       -> textContent = term(kind, "Value")
+#
+# Anything built at runtime (dasha rows, the dashboards) calls I18N.t /
+# I18N.term directly and re-renders from an I18N.onChange callback.
+#
+# The chosen language lives in localStorage and is stamped onto
+# <html data-lang="..."> by I18N.boot() before first paint, which is also
+# what the dual-rendered chart SVGs are toggled on (see the [data-lang-svg]
+# rules in PAGE_TEMPLATE).
+
+I18N_RUNTIME_JS = """
+window.I18N = (function () {
+  "use strict";
+
+  var UI = __UI_JSON__;
+  var TERMS = __TERMS_JSON__;
+  var LANGS = __LANGS_JSON__;
+  var NAMES = __NAMES_JSON__;
+  var DEFAULT = "__DEFAULT_LANG__";
+  var STORAGE_KEY = "vedic-chart-lang";
+
+  var current = DEFAULT;
+  var listeners = [];
+
+  function stored() {
+    try {
+      var saved = window.localStorage.getItem(STORAGE_KEY);
+      return LANGS.indexOf(saved) !== -1 ? saved : null;
+    } catch (err) {
+      return null; // private mode / storage disabled - just use the default
+    }
+  }
+
+  function fill(text, params) {
+    if (!params) return text;
+    return text.replace(/\\{(\\w+)\\}/g, function (match, name) {
+      return Object.prototype.hasOwnProperty.call(params, name) ? params[name] : match;
+    });
+  }
+
+  // Translated UI string. Falls back to English, then to the key itself, so
+  // an untranslated key shows up as text instead of "undefined".
+  function t(key, params) {
+    var table = UI[current] || {};
+    var text = table[key];
+    if (text === undefined) text = (UI[DEFAULT] || {})[key];
+    if (text === undefined) text = key;
+    return fill(text, params);
+  }
+
+  // Translated vocabulary item, e.g. term("planet", "Jupiter").
+  function term(kind, key) {
+    var group = TERMS[kind];
+    if (!group) return key;
+    var table = group[current] || {};
+    var text = table[key];
+    if (text === undefined) text = (group[DEFAULT] || {})[key];
+    return text === undefined ? key : text;
+  }
+
+  // House ordinals: "3rd" in English, "3ஆம்" in Tamil.
+  function ordinal(n) {
+    if (current === "ta") return n + "\\u0b86\\u0bae\\u0bcd";
+    var suffixes = ["th", "st", "nd", "rd"];
+    var v = n % 100;
+    return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+  }
+
+  function ordinalList(arr) {
+    return arr.map(ordinal).join(", ");
+  }
+
+  function applyAttrs(el) {
+    // "placeholder:form.city_placeholder;title:pg.col_arrow_title"
+    el.getAttribute("data-i18n-attr").split(";").forEach(function (pair) {
+      var sep = pair.indexOf(":");
+      if (sep === -1) return;
+      var attr = pair.slice(0, sep).trim();
+      var key = pair.slice(sep + 1).trim();
+      if (attr && key) el.setAttribute(attr, t(key));
+    });
+  }
+
+  // Re-translate every tagged node under `root` (default: the document).
+  function apply(root) {
+    var scope = root || document;
+    scope.querySelectorAll("[data-i18n]").forEach(function (el) {
+      el.textContent = t(el.getAttribute("data-i18n"));
+    });
+    scope.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+      el.innerHTML = t(el.getAttribute("data-i18n-html"));
+    });
+    scope.querySelectorAll("[data-i18n-attr]").forEach(applyAttrs);
+    scope.querySelectorAll("[data-i18n-term]").forEach(function (el) {
+      var spec = el.getAttribute("data-i18n-term");
+      var sep = spec.indexOf(":");
+      if (sep === -1) return;
+      el.textContent = term(spec.slice(0, sep), spec.slice(sep + 1));
+    });
+    if (!root) {
+      var titleEl = document.querySelector("title[data-i18n]");
+      if (titleEl) document.title = t(titleEl.getAttribute("data-i18n"));
+    }
+  }
+
+  function set(lang) {
+    if (LANGS.indexOf(lang) === -1 || lang === current) return;
+    current = lang;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, lang);
+    } catch (err) {
+      /* not fatal - the switch still works for this page view */
+    }
+    document.documentElement.setAttribute("data-lang", lang);
+    document.documentElement.setAttribute("lang", lang);
+    syncButtons();
+    apply();
+    listeners.forEach(function (fn) {
+      try {
+        fn(lang);
+      } catch (err) {
+        console.error("i18n listener failed", err);
+      }
+    });
+  }
+
+  function syncButtons() {
+    document.querySelectorAll("[data-lang-btn]").forEach(function (btn) {
+      var active = btn.getAttribute("data-lang-btn") === current;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  // Called from an inline <head> script so the right language is on
+  // <html> before the page paints - no flash of English.
+  function boot() {
+    current = stored() || DEFAULT;
+    document.documentElement.setAttribute("data-lang", current);
+    document.documentElement.setAttribute("lang", current);
+  }
+
+  function onChange(fn) {
+    listeners.push(fn);
+  }
+
+  function ready() {
+    boot();
+    syncButtons();
+    apply();
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-lang-btn]");
+      if (btn) set(btn.getAttribute("data-lang-btn"));
+    });
+  }
+
+  boot();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ready);
+  } else {
+    ready();
+  }
+
+  return {
+    t: t,
+    term: term,
+    ordinal: ordinal,
+    ordinalList: ordinalList,
+    apply: apply,
+    set: set,
+    boot: boot,
+    onChange: onChange,
+    names: NAMES,
+    languages: LANGS,
+    get lang() {
+      return current;
+    },
+  };
+})();
+"""
+
+
+def _build_i18n_js():
+    """Bake the dictionaries into I18N_RUNTIME_JS once, at import time."""
+    return (
+        I18N_RUNTIME_JS
+        .replace("__UI_JSON__", json.dumps(i18n.UI, ensure_ascii=False))
+        .replace("__TERMS_JSON__", json.dumps(i18n.TERMS, ensure_ascii=False))
+        .replace("__LANGS_JSON__", json.dumps(list(i18n.LANGUAGES)))
+        .replace("__NAMES_JSON__", json.dumps(i18n.LANGUAGE_NAMES, ensure_ascii=False))
+        .replace("__DEFAULT_LANG__", i18n.DEFAULT_LANGUAGE)
+    )
+
+
+I18N_JS = _build_i18n_js()
+
+
+@app.route("/i18n.js")
+def i18n_js():
+    return Response(I18N_JS, mimetype="application/javascript; charset=utf-8")
+
+
+# The language toggle, shared verbatim by every page. Each page styles
+# `.lang-switch` itself so the control sits naturally in its own header.
+LANG_SWITCH_HTML = """
+<div class="lang-switch" role="group" aria-label="Language">
+  <button type="button" data-lang-btn="en" aria-pressed="true">English</button>
+  <button type="button" data-lang-btn="ta" aria-pressed="false">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+</div>
+"""
+
+# Shared styling for that toggle - injected into each page's <style> block
+# so the three templates stay visually consistent without a stylesheet file.
+LANG_SWITCH_CSS = """
+  .lang-switch {
+    flex-shrink: 0;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1.5px solid rgba(212,175,55,0.45);
+    border-radius: 999px;
+    background: rgba(212,175,55,0.06);
+  }
+  .lang-switch button {
+    padding: 5px 11px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: rgba(224,213,197,0.7);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+  .lang-switch button:hover { color: #e0c477; }
+  .lang-switch button.active {
+    background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    color: #1c1710;
+    box-shadow: 0 2px 10px rgba(212,175,55,0.35);
+  }
+  /* Tamil glyphs carry more detail per character than Latin, so a small
+     size bump keeps them comfortably legible at the same layout width. */
+  html[data-lang="ta"] body { font-size: 15px; }
+"""
+
+# Inline <head> snippet: stamps the saved language onto <html> before the
+# first paint, so a Tamil user never sees a flash of English (and the
+# CSS-toggled chart SVGs pick the right variant immediately).
+LANG_BOOT_SCRIPT = """
+<script>
+  (function () {
+    try {
+      var saved = window.localStorage.getItem("vedic-chart-lang");
+      if (saved === "en" || saved === "ta") {
+        document.documentElement.setAttribute("data-lang", saved);
+        document.documentElement.setAttribute("lang", saved);
+      }
+    } catch (err) {}
+  })();
+</script>
+"""
+
+# Expose the toggle markup, its CSS and the boot script to every template,
+# so no render call has to pass them around. `t` renders the English text
+# that ships in the HTML - the browser re-renders it from the same key the
+# moment /i18n.js runs, so server and client never disagree.
+app.jinja_env.globals["lang_switch"] = LANG_SWITCH_HTML
+app.jinja_env.globals["lang_switch_css"] = LANG_SWITCH_CSS
+app.jinja_env.globals["lang_boot"] = LANG_BOOT_SCRIPT
+app.jinja_env.globals["t"] = i18n.t
+app.jinja_env.globals["term"] = i18n.term
 
 
 # "Play with Chart" - a standalone drag-and-drop South Indian chart page
@@ -404,15 +699,66 @@ def build_playground_url(subject):
     return "/play-with-chart?positions=" + urllib.parse.quote(json.dumps(positions))
 
 
-def render_chart_svg(subject, style, output_dir):
+# jyotichart writes each label as a single <text> node with no nested
+# markup, which makes the handful of English words it adds itself (the "Asc"
+# marker and the centre "Chart : Lagna" line) safe to swap by exact content
+# match. Doing it on the finished markup rather than through the library's
+# own `language=` argument keeps this working on jyotichart versions that
+# predate that argument, and Tamil isn't one of its supported languages
+# anyway (it ships english/kannada/hindi only).
+_SVG_TEXT_NODE_RE = re.compile(r"(<text\b[^>]*>)([^<]*)(</text>)")
+
+
+def _localize_chart_svg(svg_markup, lang):
+    """Translate the labels jyotichart generates on its own.
+
+    Planet glyphs are already passed in translated, so they never match a key
+    here; the person's name is left alone for the same reason.
+    """
+    if lang == i18n.DEFAULT_LANGUAGE:
+        return svg_markup
+
+    replacements = {
+        "Asc": i18n.term("planet_abbr", "Ascendant", lang),
+        "Chart : Lagna": f"{i18n.t('chart.word', lang)} : {i18n.t('chart.rashi', lang)}",
+        "Chart : Navamsa": f"{i18n.t('chart.word', lang)} : {i18n.t('chart.navamsa', lang)}",
+    }
+
+    def replace(match):
+        content = match.group(2).strip()
+        return match.group(1) + replacements.get(content, match.group(2)) + match.group(3)
+
+    return _SVG_TEXT_NODE_RE.sub(replace, svg_markup)
+
+
+def _read_chart_svg(output_dir, filename):
+    """Read back the SVG jyotichart just wrote, whatever encoding it used.
+
+    jyotichart's draw() has been observed writing UTF-16 (with BOM) on some
+    systems and plain UTF-8 on others, so detect and decode accordingly.
+    """
+    svg_path = os.path.join(output_dir, f"{filename}.svg")
+    with open(svg_path, "rb") as f:
+        raw_bytes = f.read()
+
+    if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff"):
+        return raw_bytes.decode("utf-16")
+    if raw_bytes.startswith(b"\xef\xbb\xbf"):
+        return raw_bytes.decode("utf-8-sig")
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def render_chart_svg(subject, style, output_dir, lang=i18n.DEFAULT_LANGUAGE):
     """Build a South/North Indian chart with jyotichart and return the raw SVG markup.
 
-    Retrograde classical planets get an '(R)' suffix appended directly to their
-    glyph on the chart itself (e.g. "Ma(R)") instead of relying on a separate
-    table column.
+    Planet glyphs are drawn in `lang` - "Su"/"Mo"/"Ma" in English, "சூ"/"சந்"/"செ"
+    in Tamil. Retrograde classical planets get a retrograde marker appended
+    directly to their glyph on the chart itself (e.g. "Ma(R)" / "செ(வ)")
+    instead of relying on a separate table column.
     """
     ascendant_abbr = subject.first_house["sign"]
     ascendant_full = SIGN_NAME_MAP[ascendant_abbr]
+    retro_suffix = i18n.RETROGRADE_SUFFIX.get(lang, i18n.RETROGRADE_SUFFIX["en"])
 
     ChartClass = chart.SouthChart if style == "south" else chart.NorthChart
     mychart = ChartClass("Lagna", subject.name, IsFullChart=True)
@@ -423,41 +769,29 @@ def render_chart_svg(subject, style, output_dir):
         sign_abbr = planet_data["sign"]
         house_num = house_from_signs(sign_abbr, ascendant_abbr)
         is_retro = planet_data.get("retrograde", False)
-        display_symbol = f"{symbol}(R)" if is_retro else symbol
+        glyph = i18n.planet_abbr(symbol_to_label(symbol), lang)
+        display_symbol = f"{glyph}{retro_suffix}" if is_retro else glyph
         mychart.add_planet(planet_const, display_symbol, house_num, retrograde=is_retro)
 
     rahu_data = get_rahu_data(subject)
     rahu_sign = rahu_data["sign"]
     rahu_house = house_from_signs(rahu_sign, ascendant_abbr)
-    mychart.add_planet(chart.RAHU, "Ra", rahu_house, retrograde=True)
+    mychart.add_planet(chart.RAHU, i18n.planet_abbr("Rahu", lang), rahu_house, retrograde=True)
 
     rahu_idx = SIGN_ORDER.index(rahu_sign)
     ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
     ketu_house = house_from_signs(ketu_sign, ascendant_abbr)
-    mychart.add_planet(chart.KETU, "Ke", ketu_house, retrograde=True)
+    mychart.add_planet(chart.KETU, i18n.planet_abbr("Ketu", lang), ketu_house, retrograde=True)
 
     # Turn off the default aspect glyph overlay (☉ ☾ ♂ ☿ ♃ ♀ ♄ ☊ ☋) so only
-    # the plain planet abbreviations (Su, Mo, Ma, ... Ra, Ke - with "(R)"
-    # appended for retrograde classical planets) and the Asc marker show.
+    # the plain planet abbreviations (Su, Mo, Ma, ... Ra, Ke - with the
+    # retrograde marker appended where it applies) and the Asc marker show.
     mychart.updatechartcfg(aspect=False)
 
-    filename = f"{subject.name.replace(' ', '_')}_{style}indian_chart"
+    filename = f"{subject.name.replace(' ', '_')}_{style}indian_chart_{lang}"
     mychart.draw(output_dir, filename)
 
-    svg_path = os.path.join(output_dir, f"{filename}.svg")
-    with open(svg_path, "rb") as f:
-        raw_bytes = f.read()
-
-    # jyotichart's draw() has been observed writing UTF-16 (with BOM) on some
-    # systems and plain UTF-8 on others, so detect and decode accordingly.
-    if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff"):
-        svg_markup = raw_bytes.decode("utf-16")
-    elif raw_bytes.startswith(b"\xef\xbb\xbf"):
-        svg_markup = raw_bytes.decode("utf-8-sig")
-    else:
-        svg_markup = raw_bytes.decode("utf-8", errors="replace")
-
-    return ascendant_full, svg_markup
+    return ascendant_full, _localize_chart_svg(_read_chart_svg(output_dir, filename), lang)
 
 
 # ---------------------------------------------------------------------------
@@ -510,13 +844,14 @@ def build_navamsa_positions(subject):
     return positions
 
 
-def render_navamsa_chart_svg(subject, style, output_dir, navamsa_positions):
+def render_navamsa_chart_svg(subject, style, output_dir, navamsa_positions,
+                             lang=i18n.DEFAULT_LANGUAGE):
     """Build a South/North Indian Navamsa (D9) chart with jyotichart, the
     same way render_chart_svg builds the D1 (Rashi) chart, except house
     placement comes from each point's D9 sign rather than its D1 sign.
 
     Retrograde status is a D1 (Rashi) concept and isn't conventionally
-    marked on divisional charts, so no "(R)" suffix is added here.
+    marked on divisional charts, so no retrograde suffix is added here.
     """
     ascendant_abbr = navamsa_positions["Ascendant"]
     ascendant_full = SIGN_NAME_MAP[ascendant_abbr]
@@ -529,31 +864,20 @@ def render_navamsa_chart_svg(subject, style, output_dir, navamsa_positions):
         label = symbol_to_label(symbol)
         sign_abbr = navamsa_positions[label]
         house_num = house_from_signs(sign_abbr, ascendant_abbr)
-        mychart.add_planet(planet_const, symbol, house_num, retrograde=False)
+        mychart.add_planet(planet_const, i18n.planet_abbr(label, lang), house_num, retrograde=False)
 
     rahu_house = house_from_signs(navamsa_positions["Rahu"], ascendant_abbr)
-    mychart.add_planet(chart.RAHU, "Ra", rahu_house, retrograde=True)
+    mychart.add_planet(chart.RAHU, i18n.planet_abbr("Rahu", lang), rahu_house, retrograde=True)
 
     ketu_house = house_from_signs(navamsa_positions["Ketu"], ascendant_abbr)
-    mychart.add_planet(chart.KETU, "Ke", ketu_house, retrograde=True)
+    mychart.add_planet(chart.KETU, i18n.planet_abbr("Ketu", lang), ketu_house, retrograde=True)
 
     mychart.updatechartcfg(aspect=False)
 
-    filename = f"{subject.name.replace(' ', '_')}_{style}indian_navamsa_chart"
+    filename = f"{subject.name.replace(' ', '_')}_{style}indian_navamsa_chart_{lang}"
     mychart.draw(output_dir, filename)
 
-    svg_path = os.path.join(output_dir, f"{filename}.svg")
-    with open(svg_path, "rb") as f:
-        raw_bytes = f.read()
-
-    if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff"):
-        svg_markup = raw_bytes.decode("utf-16")
-    elif raw_bytes.startswith(b"\xef\xbb\xbf"):
-        svg_markup = raw_bytes.decode("utf-8-sig")
-    else:
-        svg_markup = raw_bytes.decode("utf-8", errors="replace")
-
-    return ascendant_full, svg_markup
+    return ascendant_full, _localize_chart_svg(_read_chart_svg(output_dir, filename), lang)
 
 
 # ---------------------------------------------------------------------------
@@ -763,9 +1087,11 @@ def build_star_table(subject):
     def add_row(label, sign_abbr, degree_in_sign, abs_pos, retro, check_combustion=True):
         nak = nakshatra_details(abs_pos)
         combust = check_combustion and is_combust(label, abs_pos, sun_abs_pos, retro)
-        display_name = f"\U0001F525 {label}" if combust else label
+        # The English name doubles as the translation key - the page renders
+        # it inside a data-i18n-term span and the combustion marker sits
+        # outside, so switching language doesn't disturb the marker.
         rows.append({
-            "planet": display_name,
+            "planet": label,
             "sign": SIGN_NAME_MAP[sign_abbr],
             "degree": deg_to_dms(degree_in_sign),
             "nakshatra": nak["name"],
@@ -923,7 +1249,9 @@ def build_conjunctions(subject):
                 for label in ordered
             ],
             "pairs": pairs,
-            "signs": " → ".join(signs_seen),
+            # Kept as a list rather than a pre-joined string so each sign
+            # name can be translated individually on the page.
+            "signs": signs_seen,
             "tightest_tier": pairs[0]["tier"] if pairs else None,
         })
 
@@ -1035,6 +1363,75 @@ def build_dasha_table(subject, birth_dt):
     return rows
 
 
+def build_antardashas(lord, start_dt, years):
+    """The nine Antardasha (bhukti) sub-periods inside one Mahadasha.
+
+    Same math the results page runs client-side (see computeSubPeriods in
+    PAGE_TEMPLATE): the sequence starts with the Mahadasha lord itself and
+    walks DASHA_ORDER, each sub-lord taking the share of the Mahadasha that
+    matches its own share of the 120-year cycle.
+    """
+    from datetime import timedelta
+
+    start_idx = DASHA_ORDER.index(lord)
+    cursor = start_dt
+    periods = []
+    for step in range(9):
+        sub_lord = DASHA_ORDER[(start_idx + step) % 9]
+        sub_years = years * DASHA_YEARS[sub_lord] / 120.0
+        end = cursor + timedelta(days=sub_years * DAYS_PER_YEAR)
+        periods.append({
+            "maha": lord,
+            "antar": sub_lord,
+            "start": cursor,
+            "end": end,
+            "years": sub_years,
+        })
+        cursor = end
+    return periods
+
+
+def build_dasha_bhukti_window(dasha_table, now, before=1, after=2):
+    """Dasha-Bhukti periods around `now`: the one running today, `before`
+    previous ones, and `after` upcoming ones - four rows in total by default.
+    """
+    from datetime import datetime as _dt
+
+    periods = []
+    for row in dasha_table:
+        start_dt = _dt.strptime(row["start"], "%Y-%m-%d")
+        periods.extend(build_antardashas(row["lord"], start_dt, row["years_exact"]))
+
+    current_idx = next(
+        (i for i, p in enumerate(periods) if p["start"] <= now <= p["end"]), None
+    )
+    if current_idx is None:
+        # `now` sits outside the cycle the table covers - before birth, or past
+        # the 120 years it spans. Anchor on the nearest end so the PDF still
+        # prints a sensible run of periods instead of blowing up.
+        current_idx = 0 if now < periods[0]["start"] else len(periods) - 1
+
+    window = []
+    for i in range(max(0, current_idx - before), min(len(periods), current_idx + after + 1)):
+        p = periods[i]
+        if i < current_idx:
+            role = "Previous"
+        elif i == current_idx:
+            role = "Current"
+        elif i == current_idx + 1:
+            role = "Upcoming"
+        else:
+            role = "Then"
+        window.append({
+            "role": role,
+            "maha": p["maha"],
+            "antar": p["antar"],
+            "start": p["start"].strftime("%Y-%m-%d"),
+            "end": p["end"].strftime("%Y-%m-%d"),
+            "years": f"{p['years']:.2f}",
+        })
+    return window
+
 
 # ---------------------------------------------------------------------------
 # Web page
@@ -1042,13 +1439,18 @@ def build_dasha_table(subject, birth_dt):
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
+<!-- data-lang is what every translated rule keys off; the boot script in
+     <head> overwrites it from localStorage before the first paint, and this
+     default keeps the page readable even with JavaScript off. -->
+<html lang="en" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Vedic Birth Chart Generator</title>
+<title data-i18n="app.page_title">Vedic Birth Chart Generator</title>
 <meta name="description" content="Generate sidereal Vedic (Jyotish) birth charts - Rashi and Navamsa, Nakshatra, and Vimshottari Dasha.">
 <meta name="theme-color" content="#0b0d17">
+{{ lang_boot | safe }}
+<script src="/i18n.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -1442,6 +1844,22 @@ PAGE_TEMPLATE = """
   .meta-pill.playground-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(212, 175, 55, 0.4); }
   .meta-pill.playground-btn:active { transform: scale(0.98); }
 
+  /* The PDF button lives in its own form (it POSTs the birth details back to
+     the server), so the wrapper has to stay invisible inside the pill row. */
+  .pdf-form { display: contents; }
+  .meta-pill.pdf-btn {
+    background: var(--surface-3);
+    border-color: rgba(212, 175, 55, 0.45);
+    color: var(--text);
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: transform 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .meta-pill.pdf-btn:hover { border-color: var(--primary); color: var(--primary-2); transform: translateY(-1px); }
+  .meta-pill.pdf-btn:active { transform: scale(0.98); }
+
   .charts-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1593,6 +2011,14 @@ PAGE_TEMPLATE = """
   .conj-tier-close { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
   .conj-tier-wide { background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
   .conj-pairs { margin-top: 6px; }
+
+  /* Each chart is rendered twice server-side - once with English glyphs,
+     once with Tamil - and the toggle just swaps which copy is visible, so
+     switching language is instant and needs no round trip. */
+  .chart-svg[data-lang-svg] { display: none; }
+  html[data-lang="en"] .chart-svg[data-lang-svg="en"],
+  html[data-lang="ta"] .chart-svg[data-lang-svg="ta"] { display: block; }
+{{ lang_switch_css }}
 </style>
 </head>
 <body>
@@ -1600,131 +2026,157 @@ PAGE_TEMPLATE = """
 <div class="app-bar">
   <img class="app-bar__icon" src="/icon-192.png" alt="">
   <div class="app-bar__titles">
-    <p class="app-bar__title">Vedic Birth Chart</p>
-    <p class="app-bar__subtitle">Sidereal &middot; Lahiri ayanamsa</p>
+    <p class="app-bar__title" data-i18n="app.title">Vedic Birth Chart</p>
+    <p class="app-bar__subtitle" data-i18n="app.subtitle">Sidereal &middot; Lahiri ayanamsa</p>
   </div>
-  <a class="admin-btn" href="/admin">&#9881; Admin</a>
-  <button id="installBtn" class="install-btn" type="button">&#128241; Install</button>
+  {{ lang_switch | safe }}
+  <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
+  <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
 
 <div class="layout">
   <form class="card form-card" method="POST" action="/generate">
-    <label class="field-label" for="name">Name</label>
+    <label class="field-label" for="name" data-i18n="form.name">Name</label>
     <input type="text" id="name" name="name" value="{{ form.name }}" required>
 
-    <label class="field-label" for="city">Birth city</label>
+    <label class="field-label" for="city" data-i18n="form.city">Birth city</label>
     <div class="place-row">
-      <input type="text" id="city" name="city" value="{{ form.city }}" placeholder="e.g. Mumbai, India">
-      <button type="button" id="confirmPlaceBtn" class="confirm-btn">Confirm place</button>
+      <input type="text" id="city" name="city" value="{{ form.city }}"
+             placeholder="e.g. Mumbai, India" data-i18n-attr="placeholder:form.city_placeholder">
+      <button type="button" id="confirmPlaceBtn" class="confirm-btn" data-i18n="form.confirm_place">Confirm place</button>
     </div>
-    <small class="geo-status" id="geoStatus">Type a city and hit Confirm place to fill in the coordinates.</small>
+    <small class="geo-status" id="geoStatus" data-i18n="geo.idle">Type a city and hit Confirm place to fill in the coordinates.</small>
 
     <div class="row">
       <div>
         <div class="field-label-row">
-          <label class="field-label" for="date">Date of birth</label>
-          <button type="button" id="nowBtn" class="now-btn">Now</button>
+          <label class="field-label" for="date" data-i18n="form.dob">Date of birth</label>
+          <button type="button" id="nowBtn" class="now-btn" data-i18n="form.now">Now</button>
         </div>
         <input type="date" id="date" name="date" value="{{ form.date }}" required>
       </div>
       <div>
-        <label class="field-label" for="time">Time of birth</label>
+        <label class="field-label" for="time" data-i18n="form.tob">Time of birth</label>
         <input type="time" id="time" name="time" value="{{ form.time }}" required>
       </div>
     </div>
 
     <div class="row">
       <div>
-        <label class="field-label" for="lat">Latitude</label>
+        <label class="field-label" for="lat" data-i18n="form.lat">Latitude</label>
         <input type="number" step="any" id="lat" name="lat" value="{{ form.lat }}" placeholder="19.0760" required>
       </div>
       <div>
-        <label class="field-label" for="lng">Longitude</label>
+        <label class="field-label" for="lng" data-i18n="form.lng">Longitude</label>
         <input type="number" step="any" id="lng" name="lng" value="{{ form.lng }}" placeholder="72.8777" required>
       </div>
     </div>
-    <small class="hint">Filled in automatically by "Confirm place", or type them in yourself.</small>
+    <small class="hint" data-i18n="form.latlng_hint">Filled in automatically by "Confirm place", or type them in yourself.</small>
 
-    <label class="field-label" for="tz">Timezone (IANA name)</label>
+    <label class="field-label" for="tz" data-i18n="form.tz">Timezone (IANA name)</label>
     <input type="text" id="tz" name="tz" value="{{ form.tz }}" placeholder="Asia/Kolkata" required>
-    <small class="hint">e.g. Asia/Kolkata, America/New_York, Europe/London</small>
+    <small class="hint" data-i18n="form.tz_hint">e.g. Asia/Kolkata, America/New_York, Europe/London</small>
 
-    <label class="field-label">Chart style</label>
+    <label class="field-label" data-i18n="form.style">Chart style</label>
     <div class="segmented">
       <input type="radio" id="south" name="style" value="south" {{ 'checked' if form.style == 'south' else '' }}>
-      <label for="south">South Indian</label>
+      <label for="south" data-i18n="form.style_south">South Indian</label>
       <input type="radio" id="north" name="style" value="north" {{ 'checked' if form.style == 'north' else '' }}>
-      <label for="north">North Indian</label>
+      <label for="north" data-i18n="form.style_north">North Indian</label>
       <input type="radio" id="both" name="style" value="both" {{ 'checked' if form.style == 'both' else '' }}>
-      <label for="both">Both</label>
+      <label for="both" data-i18n="form.style_both">Both</label>
     </div>
 
-    <button type="submit" class="submit-btn">Generate Chart</button>
-    <button type="button" id="saveDetailsBtn" class="save-btn">Save details</button>
-    <small class="save-status" id="saveStatus">Saves this person's details so they show up in the admin panel - doesn't generate a chart.</small>
+    <button type="submit" class="submit-btn" data-i18n="form.submit">Generate Chart</button>
+    <button type="button" id="saveDetailsBtn" class="save-btn" data-i18n="form.save">Save details</button>
+    <small class="save-status" id="saveStatus" data-i18n="save.idle">Saves this person's details so they show up in the admin panel - doesn't generate a chart.</small>
   </form>
 
   <div class="results">
     {% if error %}
-      <div class="error"><b>Error:</b> {{ error }}</div>
+      <div class="error"><b data-i18n="results.error">Error:</b> {{ error }}</div>
     {% elif charts %}
       <div class="meta-card">
         <span class="meta-pill"><b>{{ form.name }}</b></span>
         <span class="meta-pill">{{ form.date }} &middot; {{ form.time }}</span>
-        <span class="meta-pill accent">Rashi Asc: <b>{{ ascendant }}</b></span>
-        <span class="meta-pill accent">Navamsa Asc: <b>{{ navamsa_ascendant }}</b></span>
+        <span class="meta-pill accent"><span data-i18n="meta.rashi_asc">Rashi Asc:</span>
+          <b data-i18n-term="sign:{{ ascendant }}">{{ ascendant }}</b></span>
+        <span class="meta-pill accent"><span data-i18n="meta.navamsa_asc">Navamsa Asc:</span>
+          <b data-i18n-term="sign:{{ navamsa_ascendant }}">{{ navamsa_ascendant }}</b></span>
         {% if playground_url %}
-          <a class="meta-pill playground-btn" href="{{ playground_url }}" target="_blank" rel="noopener">🪐 Play with Chart</a>
+          <a class="meta-pill playground-btn" href="{{ playground_url }}" target="_blank" rel="noopener">&#129418; <span data-i18n="meta.playground">Play with Chart</span></a>
         {% endif %}
+        <!-- Re-posts the same birth details to /download-pdf, so the export
+             works on its own without any JS or server-side session state.
+             The hidden `lang` field carries the currently selected language
+             across, so the PDF comes out in whatever the page is showing. -->
+        <form class="pdf-form" method="POST" action="/download-pdf">
+          {% for field in ['name', 'city', 'date', 'time', 'lat', 'lng', 'tz', 'style'] %}
+            <input type="hidden" name="{{ field }}" value="{{ form[field] }}">
+          {% endfor %}
+          <input type="hidden" name="lang" value="en" data-lang-field>
+          <button type="submit" class="meta-pill pdf-btn">&#11015; <span data-i18n="meta.download_pdf">Download PDF</span></button>
+        </form>
       </div>
 
       <div class="charts-grid">
-        {% for label, svg in charts %}
+        {% for card in charts %}
           <div class="chart-card">
-            <h3>{{ label }}</h3>
-            {{ svg | safe }}
+            <h3 data-i18n="{{ card.label_key }}">{{ card.label }}</h3>
+            {% for code, svg in card.svgs %}
+              <div class="chart-svg" data-lang-svg="{{ code }}">{{ svg | safe }}</div>
+            {% endfor %}
           </div>
         {% endfor %}
       </div>
-      <small class="hint">Retrograde planets are marked "(R)" on the Rashi (D1) charts. Navamsa (D9) doesn't conventionally mark retrograde.</small>
+      <small class="hint" data-i18n="chart.retro_hint">Retrograde planets are marked "(R)" on the Rashi (D1) charts. Navamsa (D9) doesn't conventionally mark retrograde.</small>
 
-      <div class="section-title">Planetary &amp; Star (Nakshatra) Details</div>
-      <small class="hint">Combust planets (too close to the Sun) are marked with \U0001F525 next to their name.</small>
+      <div class="section-title"><span data-i18n="section.star">Planetary &amp; Star (Nakshatra) Details</span></div>
+      <small class="hint" data-i18n="star.hint">Combust planets (too close to the Sun) are marked with \U0001F525 next to their name.</small>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Planet</th><th>Sign</th><th>Degree</th>
-              <th>Nakshatra</th><th>Pada</th><th>Nakshatra Lord</th>
+              <th data-i18n="th.planet">Planet</th>
+              <th data-i18n="th.sign">Sign</th>
+              <th data-i18n="th.degree">Degree</th>
+              <th data-i18n="th.nakshatra">Nakshatra</th>
+              <th data-i18n="th.pada">Pada</th>
+              <th data-i18n="th.nak_lord">Nakshatra Lord</th>
             </tr>
           </thead>
           <tbody>
             {% for row in star_table %}
             <tr>
-              <td>{{ row.planet }}</td>
-              <td>{{ row.sign }}</td>
+              <td>{% if row.combust %}\U0001F525 {% endif %}<span data-i18n-term="planet:{{ row.planet }}">{{ row.planet }}</span></td>
+              <td data-i18n-term="sign:{{ row.sign }}">{{ row.sign }}</td>
               <td>{{ row.degree }}</td>
-              <td>{{ row.nakshatra }}</td>
+              <td data-i18n-term="nakshatra:{{ row.nakshatra }}">{{ row.nakshatra }}</td>
               <td>{{ row.pada }}</td>
-              <td>{{ row.lord }}</td>
+              <td data-i18n-term="planet:{{ row.lord }}">{{ row.lord }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
 
-      <div class="section-title">Vimshottari Mahadasha</div>
-      <small class="hint">Tap any row to expand its sub-periods (Antardasha &rarr; Pratyantardasha &rarr; Sookshma Dasha). Tap again to collapse.</small>
+      <div class="section-title"><span data-i18n="section.dasha">Vimshottari Mahadasha</span></div>
+      <small class="hint" data-i18n="dasha.hint">Tap any row to expand its sub-periods (Antardasha &rarr; Pratyantardasha &rarr; Sookshma Dasha). Tap again to collapse.</small>
       <div class="table-wrap">
         <table id="dashaTable">
           <thead>
-            <tr><th>Lord</th><th>Start</th><th>End</th><th>Yrs</th></tr>
+            <tr>
+              <th data-i18n="th.lord">Lord</th>
+              <th data-i18n="th.start">Start</th>
+              <th data-i18n="th.end">End</th>
+              <th data-i18n="th.years">Yrs</th>
+            </tr>
           </thead>
           <tbody>
             {% for row in dasha_table %}
             <tr class="dasha-row level-0 {{ 'dasha-current' if row.is_current else '' }}"
                 data-level="0" data-lord="{{ row.lord }}" data-start="{{ row.start }}" data-end="{{ row.end }}" data-years="{{ row.years_exact }}">
-              <td><span class="toggle-arrow">&#9656;</span>{{ row.lord }}</td>
+              <td><span class="toggle-arrow">&#9656;</span><span data-i18n-term="planet:{{ row.lord }}">{{ row.lord }}</span></td>
               <td>{{ row.start }}</td>
               <td>{{ row.end }}</td>
               <td>{{ row.years }}</td>
@@ -1733,14 +2185,14 @@ PAGE_TEMPLATE = """
           </tbody>
         </table>
       </div>
-      <small class="hint">
+      <small class="hint" data-i18n="dasha.footnote">
         Computed with the standard Vimshottari algorithm (120-year cycle, 9 planetary
         lords) based on the Moon's Nakshatra at birth. Not provided by Kerykeion or
         jyotichart directly - neither library computes Nakshatra or Dasha.
       </small>
 
-      <div class="section-title">Houses Involved</div>
-      <small class="hint">
+      <div class="section-title"><span data-i18n="section.houses">Houses Involved</span></div>
+      <small class="hint" data-i18n="houses.hint">
         Tap a Mahadasha row to see the houses its lord activates (placement,
         aspects, and lordship - or for Rahu/Ketu, the houses ruled by every
         planet connected to it), along with that period's date range. Tap
@@ -1748,12 +2200,12 @@ PAGE_TEMPLATE = """
         together - each with its own sub-period dates.
       </small>
       <div id="housesInvolvedBox" class="houses-box">
-        <div class="placeholder-small">Tap a Mahadasha or Antardasha row above.</div>
+        <div class="placeholder-small" data-i18n="houses.placeholder">Tap a Mahadasha or Antardasha row above.</div>
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
 
-      <div class="section-title">Conjunctions &ndash; By Degree (Orb)</div>
-      <small class="hint">
+      <div class="section-title"><span data-i18n="section.conj_degree">Conjunctions &ndash; By Degree (Orb)</span></div>
+      <small class="hint" data-i18n="conj_degree.hint">
         Grahas (and the Ascendant) within 10&deg; of each other, worked out from
         actual longitude - not just a shared sign. Two bodies a couple of
         degrees apart but straddling a sign boundary still count; two bodies
@@ -1765,25 +2217,25 @@ PAGE_TEMPLATE = """
         {% for c in conjunctions %}
         <div class="planet-block">
           <div class="planet-name">
-            {{ c.members | map(attribute='planet') | join(' + ') }}
-            <span class="conj-tier conj-tier-{{ c.tightest_tier | lower }}">{{ c.tightest_tier }}</span>
+            {% for m in c.members %}<span data-i18n-term="planet:{{ m.planet }}">{{ m.planet }}</span>{% if not loop.last %} + {% endif %}{% endfor %}
+            <span class="conj-tier conj-tier-{{ c.tightest_tier | lower }}" data-i18n-term="conj_tier:{{ c.tightest_tier }}">{{ c.tightest_tier }}</span>
           </div>
-          <div class="detail-line"><span class="dl-label">Sign(s)</span>{{ c.signs }}</div>
+          <div class="detail-line"><span class="dl-label" data-i18n="conj.signs_label">Sign(s)</span>{% for s in c.signs %}<span data-i18n-term="sign:{{ s }}">{{ s }}</span>{% if not loop.last %} &rarr; {% endif %}{% endfor %}</div>
           {% for m in c.members %}
-          <div class="detail-line"><span class="dl-label">{{ m.planet }}</span>{{ m.degree }} {{ m.sign }}</div>
+          <div class="detail-line"><span class="dl-label" data-i18n-term="planet:{{ m.planet }}">{{ m.planet }}</span>{{ m.degree }} <span data-i18n-term="sign:{{ m.sign }}">{{ m.sign }}</span></div>
           {% endfor %}
           <div class="muted-line conj-pairs">
-            {% for p in c.pairs %}{{ p.a }}&ndash;{{ p.b }}: {{ p.orb }} apart ({{ p.tier }}){% if not loop.last %} &middot; {% endif %}{% endfor %}
+            {% for p in c.pairs %}<span data-i18n-term="planet:{{ p.a }}">{{ p.a }}</span>&ndash;<span data-i18n-term="planet:{{ p.b }}">{{ p.b }}</span>: {{ p.orb }} <span data-i18n="conj.apart">apart</span> (<span data-i18n-term="conj_tier:{{ p.tier }}">{{ p.tier }}</span>){% if not loop.last %} &middot; {% endif %}{% endfor %}
           </div>
         </div>
         {% endfor %}
       </div>
       {% else %}
-      <div class="houses-box"><div class="placeholder-small">No conjunctions within 10&deg; in this chart.</div></div>
+      <div class="houses-box"><div class="placeholder-small" data-i18n="conj_degree.none">No conjunctions within 10&deg; in this chart.</div></div>
       {% endif %}
 
-      <div class="section-title">Conjunctions &ndash; By Sign (Rashi)</div>
-      <small class="hint">
+      <div class="section-title"><span data-i18n="section.conj_sign">Conjunctions &ndash; By Sign (Rashi)</span></div>
+      <small class="hint" data-i18n="conj_sign.hint">
         The traditional whole-sign yuti: every pair of grahas (and the
         Ascendant) sharing a sign, however many degrees apart within it -
         with that gap shown alongside, so a tight 2&deg; pairing and a loose
@@ -1793,18 +2245,18 @@ PAGE_TEMPLATE = """
       <div class="houses-box houses-box-row">
         {% for s in sign_conjunctions %}
         <div class="planet-block">
-          <div class="planet-name">{{ s.sign }}</div>
+          <div class="planet-name" data-i18n-term="sign:{{ s.sign }}">{{ s.sign }}</div>
           {% for m in s.members %}
-          <div class="detail-line"><span class="dl-label">{{ m.planet }}</span>{{ m.degree }}</div>
+          <div class="detail-line"><span class="dl-label" data-i18n-term="planet:{{ m.planet }}">{{ m.planet }}</span>{{ m.degree }}</div>
           {% endfor %}
           <div class="muted-line conj-pairs">
-            {% for p in s.pairs %}{{ p.a }}&ndash;{{ p.b }}: {{ p.diff }} apart{% if not loop.last %} &middot; {% endif %}{% endfor %}
+            {% for p in s.pairs %}<span data-i18n-term="planet:{{ p.a }}">{{ p.a }}</span>&ndash;<span data-i18n-term="planet:{{ p.b }}">{{ p.b }}</span>: {{ p.diff }} <span data-i18n="conj.apart">apart</span>{% if not loop.last %} &middot; {% endif %}{% endfor %}
           </div>
         </div>
         {% endfor %}
       </div>
       {% else %}
-      <div class="houses-box"><div class="placeholder-small">No two bodies share a sign in this chart.</div></div>
+      <div class="houses-box"><div class="placeholder-small" data-i18n="conj_sign.none">No two bodies share a sign in this chart.</div></div>
       {% endif %}
 
       <script>
@@ -1826,24 +2278,22 @@ PAGE_TEMPLATE = """
             DASHA_HOUSE_DATA = {};
           }
 
-          function ordinal(n) {
-            const suffixes = ["th", "st", "nd", "rd"];
-            const v = n % 100;
-            return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
-          }
-          function housesList(arr) {
-            return arr.map(ordinal).join(", ");
-          }
+          // Ordinals and house lists come from the shared runtime so they
+          // read "3rd, 7th" in English and "3ஆம், 7ஆம்" in Tamil.
+          const ordinal = (n) => I18N.ordinal(n);
+          const housesList = (arr) => I18N.ordinalList(arr);
+          const planet = (label) => I18N.term("planet", label);
+          const sign = (name) => I18N.term("sign", name);
 
           function renderPlanetBlock(label, info) {
             if (!info) {
-              return `<div class="planet-block"><div class="planet-name">${label}</div>
-                <div class="muted-line">No house data available.</div></div>`;
+              return `<div class="planet-block"><div class="planet-name">${planet(label)}</div>
+                <div class="muted-line">${I18N.t("houses.no_data")}</div></div>`;
             }
             if (info.type === "classical") {
               return `
                 <div class="planet-block">
-                  <div class="planet-line">${label} = Lord of ${housesList(info.lordship)} = Placement - ${ordinal(info.placement)} = Aspects - ${housesList(info.aspects)}</div>
+                  <div class="planet-line">${planet(label)} = ${I18N.t("phrase.lord_of")} ${housesList(info.lordship)} = ${I18N.t("phrase.placement")} - ${ordinal(info.placement)} = ${I18N.t("phrase.aspects")} - ${housesList(info.aspects)}</div>
                 </div>`;
             }
             // Rahu/Ketu: same "= clause = clause" single-line pattern as the
@@ -1854,15 +2304,15 @@ PAGE_TEMPLATE = """
             const dispositorConn = info.connections.find((c) => c.roles.includes("dispositor"));
             const conjunctConns = info.connections.filter((c) => c.roles.includes("conjunct"));
             const aspectingConns = info.connections.filter((c) => c.roles.includes("aspecting"));
-            const connStr = (conns) => conns.map((c) => `${housesList(c.houses)} (${c.planet})`).join("; ");
+            const connStr = (conns) => conns.map((c) => `${housesList(c.houses)} (${planet(c.planet)})`).join("; ");
 
             const dispositorStr = dispositorConn
-              ? `Dispositor (${dispositorConn.planet}) of ${housesList(dispositorConn.houses)}`
-              : "Dispositor - none";
+              ? `${I18N.t("phrase.dispositor")} (${planet(dispositorConn.planet)}) ${I18N.t("phrase.of")} ${housesList(dispositorConn.houses)}`
+              : I18N.t("phrase.dispositor_none");
 
-            let line = `${label} = ${dispositorStr} = Placement - ${ordinal(info.placement)} House (${info.sign})`;
-            if (conjunctConns.length) line += ` = Conjunct - ${connStr(conjunctConns)}`;
-            line += ` = Aspected by - ${aspectingConns.length ? connStr(aspectingConns) : "none"}`;
+            let line = `${planet(label)} = ${dispositorStr} = ${I18N.t("phrase.placement")} - ${ordinal(info.placement)} ${I18N.t("phrase.house")} (${sign(info.sign)})`;
+            if (conjunctConns.length) line += ` = ${I18N.t("phrase.conjunct")} - ${connStr(conjunctConns)}`;
+            line += ` = ${I18N.t("phrase.aspected_by")} - ${aspectingConns.length ? connStr(aspectingConns) : I18N.t("phrase.none")}`;
 
             return `
               <div class="planet-block">
@@ -1870,12 +2320,17 @@ PAGE_TEMPLATE = """
               </div>`;
           }
 
+          // Remembered so a language switch can redraw the box with whatever
+          // period the user last tapped, instead of resetting it.
+          let currentHousesSelection = null;
+
           function updateHousesBox(lords) {
+            currentHousesSelection = lords;
             const box = document.getElementById("housesInvolvedBox");
             if (!box) return;
             box.innerHTML = lords.map((l) => `
               <div class="dasha-level-block">
-                <div class="dl-heading">${l.role}: ${l.label}<span class="dl-period">(${l.start} &rarr; ${l.end})</span></div>
+                <div class="dl-heading">${I18N.term("dasha_level", l.role)}: ${planet(l.label)}<span class="dl-period">(${l.start} &rarr; ${l.end})</span></div>
                 ${renderPlanetBlock(l.label, DASHA_HOUSE_DATA[l.label])}
               </div>`).join("");
           }
@@ -1936,7 +2391,10 @@ PAGE_TEMPLATE = """
               const arrow = childLevel < MAX_LEVEL
                 ? '<span class="toggle-arrow">&#9656;</span>'
                 : '<span class="toggle-arrow"></span>';
-              tr.innerHTML = `<td>${arrow}${p.lord}</td><td>${p.start}</td><td>${p.end}</td><td>${p.years.toFixed(3)}</td>`;
+              // data-i18n-term lets I18N.apply() re-translate these rows on a
+              // language switch without having to rebuild the tree.
+              tr.innerHTML = `<td>${arrow}<span data-i18n-term="planet:${p.lord}">${planet(p.lord)}</span></td>` +
+                `<td>${p.start}</td><td>${p.end}</td><td>${p.years.toFixed(3)}</td>`;
               anchor.after(tr);
               anchor = tr;
             });
@@ -1968,12 +2426,19 @@ PAGE_TEMPLATE = """
               expandRow(row);
             }
           });
+
+          // The expanded dasha rows carry data-i18n-term, so I18N.apply()
+          // handles them; the Houses Involved box is free-form prose and has
+          // to be rebuilt from the last selection.
+          I18N.onChange(() => {
+            if (currentHousesSelection) updateHousesBox(currentHousesSelection);
+          });
         })();
       </script>
     {% else %}
       <div class="card placeholder-card">
         <div class="ph-icon">&#10022;</div>
-        Fill in the birth details and tap "Generate Chart" to see the natal chart here.
+        <span data-i18n="results.placeholder">Fill in the birth details and tap "Generate Chart" to see the natal chart here.</span>
       </div>
     {% endif %}
   </div>
@@ -1990,21 +2455,24 @@ PAGE_TEMPLATE = """
     const status = document.getElementById("geoStatus");
     if (!btn) return;
 
+    // Status text is set from JS, so it can't carry a data-i18n attribute -
+    // stash the key on the element instead and re-render it on a switch.
     function setStatus(msg, kind) {
       status.textContent = msg;
       status.className = "geo-status" + (kind ? " " + kind : "");
+      status.removeAttribute("data-i18n");
     }
 
     async function confirmPlace() {
       const place = cityInput.value.trim();
       if (!place) {
-        setStatus("Enter a birth city first.", "bad");
+        setStatus(I18N.t("geo.need_city"), "bad");
         cityInput.focus();
         return;
       }
 
       btn.disabled = true;
-      setStatus("Looking up " + place + "…", "");
+      setStatus(I18N.t("geo.looking", { place }), "");
 
       try {
         const res = await fetch("/geocode", {
@@ -2015,7 +2483,7 @@ PAGE_TEMPLATE = """
         const data = await res.json();
 
         if (!res.ok) {
-          setStatus(data.error || "Lookup failed.", "bad");
+          setStatus(data.error || I18N.t("geo.failed"), "bad");
           return;
         }
 
@@ -2023,7 +2491,7 @@ PAGE_TEMPLATE = """
         lngInput.value = data.lng;
         setStatus(data.address + " → " + data.lat + ", " + data.lng, "ok");
       } catch (err) {
-        setStatus("Lookup failed - check your connection.", "bad");
+        setStatus(I18N.t("geo.offline"), "bad");
       } finally {
         btn.disabled = false;
       }
@@ -2063,11 +2531,10 @@ PAGE_TEMPLATE = """
     const status = document.getElementById("saveStatus");
     if (!btn) return;
 
-    const defaultStatus = status.textContent;
-
     function setStatus(msg, kind) {
       status.textContent = msg;
       status.className = "save-status" + (kind ? " " + kind : "");
+      status.removeAttribute("data-i18n");
     }
 
     async function saveDetails() {
@@ -2075,13 +2542,13 @@ PAGE_TEMPLATE = """
       const data = new FormData(form);
 
       if (!data.get("name")?.trim()) {
-        setStatus("Enter a name first.", "bad");
+        setStatus(I18N.t("save.need_name"), "bad");
         document.getElementById("name").focus();
         return;
       }
 
       btn.disabled = true;
-      setStatus("Saving…", "");
+      setStatus(I18N.t("save.saving"), "");
 
       try {
         const res = await fetch("/save", {
@@ -2091,19 +2558,31 @@ PAGE_TEMPLATE = """
         const result = await res.json();
 
         if (!res.ok) {
-          setStatus(result.error || "Could not save.", "bad");
+          setStatus(result.error || I18N.t("save.failed"), "bad");
           return;
         }
 
-        setStatus("Saved - visible in the admin panel now.", "ok");
+        setStatus(I18N.t("save.ok"), "ok");
       } catch (err) {
-        setStatus("Could not save - check your connection.", "bad");
+        setStatus(I18N.t("save.offline"), "bad");
       } finally {
         btn.disabled = false;
       }
     }
 
     btn.addEventListener("click", saveDetails);
+  })();
+
+  // Keep the PDF export's hidden `lang` field in step with the toggle, so
+  // "Download PDF" always produces the language currently on screen.
+  (function () {
+    function syncLangFields(lang) {
+      document.querySelectorAll("[data-lang-field]").forEach((el) => {
+        el.value = lang;
+      });
+    }
+    syncLangFields(I18N.lang);
+    I18N.onChange(syncLangFields);
   })();
 
   // Register the service worker (enables installability + basic offline shell).
@@ -2160,11 +2639,13 @@ PAGE_TEMPLATE = """
 
 ADMIN_LOGIN_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Admin sign in - Vedic Birth Chart</title>
+<title data-i18n="admin.login_page_title">Admin sign in - Vedic Birth Chart</title>
+{{ lang_boot | safe }}
+<script src="/i18n.js"></script>
 <style>
   :root {
     --bg: #0b0d17; --surface: #151829; --border: #282d4c;
@@ -2191,18 +2672,21 @@ ADMIN_LOGIN_TEMPLATE = """
     color: #fff; font-weight: 600; cursor: pointer; font-size: 1rem;
   }
   .error { color: var(--danger); font-size: .85rem; margin: 0; }
+  .lang-row { display: flex; justify-content: center; }
+{{ lang_switch_css }}
 </style>
 </head>
 <body>
 <form method="POST" action="{{ url_for('admin_login') }}">
-  <h1>Admin sign in</h1>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <div class="lang-row">{{ lang_switch | safe }}</div>
+  <h1 data-i18n="admin.login_title">Admin sign in</h1>
+  {% if error %}<p class="error" data-i18n="{{ error }}">{{ t(error) }}</p>{% endif %}
   <div>
-    <label for="password">Password</label>
+    <label for="password" data-i18n="admin.password">Password</label>
     <input type="password" id="password" name="password" autofocus required>
   </div>
   <input type="hidden" name="next" value="{{ next }}">
-  <button type="submit">Sign in</button>
+  <button type="submit" data-i18n="admin.sign_in">Sign in</button>
 </form>
 </body>
 </html>
@@ -2210,11 +2694,13 @@ ADMIN_LOGIN_TEMPLATE = """
 
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Admin - Stored Birth Details</title>
+<title data-i18n="admin.page_title">Admin - Stored Birth Details</title>
+{{ lang_boot | safe }}
+<script src="/i18n.js"></script>
 <style>
   :root {
     --bg: #0b0d17; --surface: #151829; --border: #282d4c;
@@ -2248,14 +2734,16 @@ ADMIN_TEMPLATE = """
     text-decoration: none; padding: 9px 12px; border-radius: 9px; font-weight: 600; font-size: .9rem;
   }
   .empty { color: var(--muted); }
+{{ lang_switch_css }}
 </style>
 </head>
 <body>
 <div class="top-bar">
-  <h1>Stored birth details ({{ records|length }})</h1>
+  <h1><span data-i18n="admin.stored">Stored birth details</span> ({{ records|length }})</h1>
   <div class="links">
-    <a href="{{ url_for('index') }}">New chart</a>
-    <a href="{{ url_for('admin_logout') }}">Log out</a>
+    {{ lang_switch | safe }}
+    <a href="{{ url_for('index') }}" data-i18n="admin.new_chart">New chart</a>
+    <a href="{{ url_for('admin_logout') }}" data-i18n="admin.log_out">Log out</a>
   </div>
 </div>
 {% if records %}
@@ -2263,18 +2751,22 @@ ADMIN_TEMPLATE = """
   {% for r in records %}
   <div class="card">
     <h2>{{ r.name }}</h2>
-    <p class="city">{{ r.city or "Unknown city" }}</p>
-    <div class="row"><span>Date of birth</span><span>{{ r.date }}</span></div>
-    <div class="row"><span>Time of birth</span><span>{{ r.time }}</span></div>
-    <div class="row"><span>Lat, Lng</span><span>{{ r.lat }}, {{ r.lng }}</span></div>
-    <div class="row"><span>Timezone</span><span>{{ r.tz }}</span></div>
-    <div class="row"><span>Saved</span><span>{{ r.updated_at.strftime("%Y-%m-%d %H:%M") if r.updated_at else "" }}</span></div>
-    <a class="go-btn" href="{{ url_for('index', record_id=r.id) }}">Go to chart</a>
+    {% if r.city %}
+      <p class="city">{{ r.city }}</p>
+    {% else %}
+      <p class="city" data-i18n="admin.unknown_city">Unknown city</p>
+    {% endif %}
+    <div class="row"><span data-i18n="admin.dob">Date of birth</span><span>{{ r.date }}</span></div>
+    <div class="row"><span data-i18n="admin.tob">Time of birth</span><span>{{ r.time }}</span></div>
+    <div class="row"><span data-i18n="admin.latlng">Lat, Lng</span><span>{{ r.lat }}, {{ r.lng }}</span></div>
+    <div class="row"><span data-i18n="admin.timezone">Timezone</span><span>{{ r.tz }}</span></div>
+    <div class="row"><span data-i18n="admin.saved_at">Saved</span><span>{{ r.updated_at.strftime("%Y-%m-%d %H:%M") if r.updated_at else "" }}</span></div>
+    <a class="go-btn" href="{{ url_for('index', record_id=r.id) }}" data-i18n="admin.go_to_chart">Go to chart</a>
   </div>
   {% endfor %}
 </div>
 {% else %}
-<p class="empty">No records saved yet - generate a chart on the main page to see it here.</p>
+<p class="empty" data-i18n="admin.empty">No records saved yet - generate a chart on the main page to see it here.</p>
 {% endif %}
 </body>
 </html>
@@ -2321,6 +2813,104 @@ def index():
     )
 
 
+def read_form(req):
+    """Pull the birth-details fields out of a submitted form."""
+    return {
+        "name": req.form.get("name", "").strip() or "Chart",
+        "city": req.form.get("city", "").strip(),
+        "date": req.form.get("date", ""),
+        "time": req.form.get("time", ""),
+        "lat": req.form.get("lat", ""),
+        "lng": req.form.get("lng", ""),
+        "tz": req.form.get("tz", "").strip(),
+        "style": req.form.get("style", "south"),
+    }
+
+
+def build_chart_context(form):
+    """Everything the results page (and the PDF export) needs for one chart.
+
+    Raises whatever the parsing/ephemeris code raises - callers decide how to
+    show the failure.
+    """
+    from datetime import datetime as _dt
+
+    year, month, day = (int(x) for x in form["date"].split("-"))
+    hour, minute = (int(x) for x in form["time"].split(":"))
+    lat = float(form["lat"])
+    lng = float(form["lng"])
+
+    subject = build_vedic_subject(
+        name=form["name"],
+        year=year, month=month, day=day, hour=hour, minute=minute,
+        lat=lat, lng=lng, tz_str=form["tz"], city=form["city"] or "Unknown",
+    )
+
+    styles_to_render = (
+        ["south", "north"] if form["style"] == "both" else [form["style"]]
+    )
+
+    # Each chart is drawn once per language and both copies are handed to
+    # the page, which shows one and hides the other via CSS - that makes the
+    # language toggle instant instead of a re-submit. jyotichart is a pure
+    # string-writing renderer, so the extra pass is cheap.
+    charts = []
+    ascendant = None
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        for style in styles_to_render:
+            svgs = []
+            for lang in i18n.LANGUAGES:
+                asc, svg = render_chart_svg(subject, style, tmp_dir, lang)
+                ascendant = asc
+                svgs.append((lang, svg))
+            label_key = "chart.south_d1" if style == "south" else "chart.north_d1"
+            charts.append({
+                "label_key": label_key,
+                "label": i18n.t(label_key),
+                "svgs": svgs,
+            })
+
+        navamsa_positions = build_navamsa_positions(subject)
+        navamsa_ascendant = SIGN_NAME_MAP[navamsa_positions["Ascendant"]]
+        for style in styles_to_render:
+            svgs = []
+            for lang in i18n.LANGUAGES:
+                asc9, svg9 = render_navamsa_chart_svg(subject, style, tmp_dir, navamsa_positions, lang)
+                svgs.append((lang, svg9))
+            label_key9 = "chart.south_d9" if style == "south" else "chart.north_d9"
+            charts.append({
+                "label_key": label_key9,
+                "label": i18n.t(label_key9),
+                "svgs": svgs,
+            })
+
+    birth_dt = _dt(year, month, day, hour, minute)
+    dasha_table = build_dasha_table(subject, birth_dt)
+
+    # Mark whichever Mahadasha row covers today's date
+    now = _dt.now()
+    for row in dasha_table:
+        row_start = _dt.strptime(row["start"], "%Y-%m-%d")
+        row_end = _dt.strptime(row["end"], "%Y-%m-%d")
+        row["is_current"] = row_start <= now <= row_end
+
+    ascendant_abbr = subject.first_house["sign"]
+
+    return {
+        "subject": subject,
+        "charts": charts,
+        "ascendant": ascendant,
+        "navamsa_ascendant": navamsa_ascendant,
+        "star_table": build_star_table(subject),
+        "conjunctions": build_conjunctions(subject),
+        "sign_conjunctions": build_sign_conjunctions(subject),
+        "dasha_table": dasha_table,
+        "bhukti_window": build_dasha_bhukti_window(dasha_table, now),
+        "dasha_house_json": json.dumps(build_dasha_house_map(subject, ascendant_abbr)),
+        "playground_url": build_playground_url(subject),
+    }
+
+
 @app.route("/generate", methods=["GET", "POST"])
 def generate():
     # A plain GET here means someone refreshed the results page, followed a
@@ -2329,79 +2919,17 @@ def generate():
     if request.method == "GET":
         return redirect(url_for("index"))
 
-    form = {
-        "name": request.form.get("name", "").strip() or "Chart",
-        "city": request.form.get("city", "").strip(),
-        "date": request.form.get("date", ""),
-        "time": request.form.get("time", ""),
-        "lat": request.form.get("lat", ""),
-        "lng": request.form.get("lng", ""),
-        "tz": request.form.get("tz", "").strip(),
-        "style": request.form.get("style", "south"),
-    }
+    form = read_form(request)
 
     try:
-        year, month, day = (int(x) for x in form["date"].split("-"))
-        hour, minute = (int(x) for x in form["time"].split(":"))
-        lat = float(form["lat"])
-        lng = float(form["lng"])
-
-        subject = build_vedic_subject(
-            name=form["name"],
-            year=year, month=month, day=day, hour=hour, minute=minute,
-            lat=lat, lng=lng, tz_str=form["tz"], city=form["city"] or "Unknown",
-        )
-
-        styles_to_render = (
-            ["south", "north"] if form["style"] == "both" else [form["style"]]
-        )
-
-        charts = []
-        ascendant = None
-        navamsa_ascendant = None
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            for style in styles_to_render:
-                asc, svg = render_chart_svg(subject, style, tmp_dir)
-                ascendant = asc
-                label = "South Indian Chart (Rashi / D1)" if style == "south" else "North Indian Chart (Rashi / D1)"
-                charts.append((label, svg))
-
-            navamsa_positions = build_navamsa_positions(subject)
-            navamsa_ascendant = SIGN_NAME_MAP[navamsa_positions["Ascendant"]]
-            for style in styles_to_render:
-                asc9, svg9 = render_navamsa_chart_svg(subject, style, tmp_dir, navamsa_positions)
-                label9 = (
-                    "South Indian Navamsa Chart (D9)" if style == "south"
-                    else "North Indian Navamsa Chart (D9)"
-                )
-                charts.append((label9, svg9))
-
-        star_table = build_star_table(subject)
-        conjunctions = build_conjunctions(subject)
-        sign_conjunctions = build_sign_conjunctions(subject)
-
-        from datetime import datetime as _dt
-        birth_dt = _dt(year, month, day, hour, minute)
-        dasha_table = build_dasha_table(subject, birth_dt)
-
-        # Mark whichever Mahadasha row covers today's date
-        now = _dt.now()
-        for row in dasha_table:
-            row_start = _dt.strptime(row["start"], "%Y-%m-%d")
-            row_end = _dt.strptime(row["end"], "%Y-%m-%d")
-            row["is_current"] = row_start <= now <= row_end
-
-        ascendant_abbr = subject.first_house["sign"]
-        dasha_house_map = build_dasha_house_map(subject, ascendant_abbr)
-        dasha_house_json = json.dumps(dasha_house_map)
-        playground_url = build_playground_url(subject)
-
+        ctx = build_chart_context(form)
         return render_template_string(
-            PAGE_TEMPLATE, form=form, charts=charts, error=None, ascendant=ascendant,
-            navamsa_ascendant=navamsa_ascendant, star_table=star_table,
-            dasha_table=dasha_table, dasha_house_json=dasha_house_json,
-            conjunctions=conjunctions, sign_conjunctions=sign_conjunctions,
-            playground_url=playground_url,
+            PAGE_TEMPLATE, form=form, error=None,
+            charts=ctx["charts"], ascendant=ctx["ascendant"],
+            navamsa_ascendant=ctx["navamsa_ascendant"], star_table=ctx["star_table"],
+            dasha_table=ctx["dasha_table"], dasha_house_json=ctx["dasha_house_json"],
+            conjunctions=ctx["conjunctions"], sign_conjunctions=ctx["sign_conjunctions"],
+            playground_url=ctx["playground_url"],
         )
 
     except Exception as e:
@@ -2412,6 +2940,61 @@ def generate():
         )
 
 
+def _pdf_content_disposition(name):
+    """Build the download header for a person's chart PDF.
+
+    WSGI headers have to be latin-1 safe, so a name in Tamil, Devanagari, etc.
+    can't go in the plain filename= value. Send an ASCII-only fallback there
+    and the real name in the RFC 5987 filename*= form, which every current
+    browser prefers when both are present.
+    """
+    full = f"{name}_vedic_chart.pdf".replace(" ", "_")
+
+    ascii_slug = "".join(
+        c for c in name if (c.isascii() and c.isalnum()) or c in " -_"
+    ).strip().replace(" ", "_") or "chart"
+    fallback = f"{ascii_slug}_vedic_chart.pdf"
+
+    encoded = urllib.parse.quote(full, safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
+@app.route("/download-pdf", methods=["POST"])
+def download_pdf():
+    """Render the current birth details to a printable PDF.
+
+    The results page posts the same fields /generate got, so the chart is
+    recomputed here rather than cached between requests - the ephemeris work
+    is quick, and it keeps the export usable straight from a bookmark or a
+    saved record.
+    """
+    form = read_form(request)
+
+    # The results page posts whichever language the toggle is on; anything
+    # unrecognised falls back to English rather than erroring.
+    lang = request.form.get("lang", i18n.DEFAULT_LANGUAGE)
+    if lang not in i18n.LANGUAGES:
+        lang = i18n.DEFAULT_LANGUAGE
+
+    if chart_pdf is None:
+        return (
+            "PDF export needs reportlab and svglib: pip install reportlab svglib",
+            500,
+        )
+
+    try:
+        ctx = build_chart_context(form)
+        pdf_bytes = chart_pdf.build_chart_pdf(form, ctx, lang)
+    except Exception as e:
+        return f"Could not build the PDF: {e}", 400
+
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": _pdf_content_disposition(form["name"])},
+    )
+
+
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     next_url = request.args.get("next") or request.form.get("next") or url_for("admin_panel")
@@ -2420,7 +3003,9 @@ def admin_login():
         if request.form.get("password") == ADMIN_PASSWORD:
             session["is_admin"] = True
             return redirect(next_url)
-        error = "Wrong password."
+        # A translation key rather than a sentence, so the login page can
+        # re-render it when the language toggle is used.
+        error = "admin.wrong_password"
     return render_template_string(ADMIN_LOGIN_TEMPLATE, error=error, next=next_url)
 
 
