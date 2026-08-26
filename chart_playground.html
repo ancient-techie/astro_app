@@ -1,9 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- data-lang drives every translated rule; the boot script below overwrites
+     it from localStorage before the first paint, and this default keeps the
+     page readable with JavaScript off. -->
+<html lang="en" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Play with Chart - Vedic Birth Chart</title>
+<title data-i18n="pg.page_title">Play with Chart - Vedic Birth Chart</title>
+<script>
+  (function () {
+    try {
+      var saved = window.localStorage.getItem("vedic-chart-lang");
+      if (saved === "en" || saved === "ta") {
+        document.documentElement.setAttribute("data-lang", saved);
+        document.documentElement.setAttribute("lang", saved);
+      }
+    } catch (err) {}
+  })();
+</script>
+<!-- Same dictionaries the generator and admin pages use (served from
+     i18n.py), so a term never differs between pages. -->
+<script src="/i18n.js"></script>
 <meta name="description" content="Drag-and-drop South Indian Rashi chart playground, pre-filled from your generated birth chart.">
 <meta name="theme-color" content="#0b0d17">
 <link rel="manifest" href="/manifest.json">
@@ -28,6 +45,11 @@ body{min-height:100vh;background:#12111e;background-image:radial-gradient(ellips
 h1{font-family:'Cinzel',serif;font-size:1.6rem;letter-spacing:.15em;color:#d4af37;text-shadow:0 0 24px rgba(212,175,55,.5)}
 .back-link{font-family:'Cinzel',serif;font-size:.72rem;letter-spacing:.08em;padding:8px 18px;border-radius:20px;border:1.5px solid rgba(212,175,55,.5);background:rgba(212,175,55,.08);color:#e0c477;text-decoration:none;transition:all .2s;white-space:nowrap}
 .back-link:hover{background:rgba(212,175,55,.18);border-color:#d4af37;color:#ffe060}
+/* Language toggle - matches the control on the generator and admin pages. */
+.lang-switch{flex-shrink:0;display:inline-flex;gap:2px;padding:3px;border:1.5px solid rgba(212,175,55,.45);border-radius:999px;background:rgba(212,175,55,.06)}
+.lang-switch button{padding:5px 11px;font-family:'Cinzel',serif;font-size:11px;font-weight:700;letter-spacing:.04em;color:rgba(224,213,197,.7);background:transparent;border:none;border-radius:999px;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s}
+.lang-switch button:hover{color:#e0c477}
+.lang-switch button.active{background:linear-gradient(135deg,#d4af37 0%,#f0d878 100%);color:#1c1710;box-shadow:0 2px 10px rgba(212,175,55,.35)}
 .admin-link{font-family:'Cinzel',serif;font-size:.72rem;letter-spacing:.08em;padding:8px 18px;border-radius:20px;border:1.5px solid rgba(120,170,255,.5);background:rgba(90,140,255,.08);color:#a9c3ff;text-decoration:none;transition:all .2s;white-space:nowrap}
 .admin-link:hover{background:rgba(90,140,255,.18);border-color:#7aa2ff;color:#cfe0ff}
 .clear-btn{font-family:'Cinzel',serif;font-size:.72rem;letter-spacing:.08em;padding:8px 20px;border-radius:20px;border:1.5px solid rgba(255,80,60,.6);background:rgba(255,50,30,.1);color:#ff8877;cursor:pointer;transition:all .2s}
@@ -268,17 +290,21 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 
 <div class="top-bar">
   <div class="top-bar-left">
-    <a class="back-link" href="/">← Back to Generator</a>
-    <h1>✦ South Indian Birth Chart ✦</h1>
+    <a class="back-link" href="/">← <span data-i18n="pg.back">Back to Generator</span></a>
+    <h1>✦ <span data-i18n="pg.title">South Indian Birth Chart</span> ✦</h1>
   </div>
   <div class="top-bar-right">
-    <a class="admin-link" href="/admin">⚙ Admin</a>
-    <button class="clear-btn" onclick="clearAll()">⟳ Clear Chart</button>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <button type="button" data-lang-btn="en" aria-pressed="true">English</button>
+      <button type="button" data-lang-btn="ta" aria-pressed="false">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+    </div>
+    <a class="admin-link" href="/admin">⚙ <span data-i18n="nav.admin">Admin</span></a>
+    <button class="clear-btn" onclick="clearAll()">⟳ <span data-i18n="pg.clear">Clear Chart</span></button>
   </div>
 </div>
 
 <div class="controls-bar">
-  <label for="rayOpacity">⟶ Aspect Ray Opacity</label>
+  <label for="rayOpacity">⟶ <span data-i18n="pg.ray_opacity">Aspect Ray Opacity</span></label>
   <input type="range" id="rayOpacity" min="0" max="100" value="65" oninput="onRayOpacityChange(this)">
   <span class="opacity-value" id="opacityLabel">65%</span>
 </div>
@@ -289,70 +315,121 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
     <svg class="rays-overlay" id="raysOverlay" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
   <div class="palette">
-    <h3>Grahas</h3>
+    <h3 data-i18n="pg.grahas">Grahas</h3>
     <div class="cb-header-row">
-      <div class="cb-header-label">Planet</div>
-      <div class="cb-col-label" title="Show aspect arrows">&#8599;</div>
-      <div class="cb-col-label" title="Show sign colors">&#9679;</div>
+      <div class="cb-header-label" data-i18n="pg.col_planet">Planet</div>
+      <div class="cb-col-label" title="Show aspect arrows" data-i18n-attr="title:pg.col_arrow_title">&#8599;</div>
+      <div class="cb-col-label" title="Show sign colors" data-i18n-attr="title:pg.col_color_title">&#9679;</div>
     </div>
     <div class="cb-header-row" style="border-bottom:1px solid rgba(212,175,55,.12);margin-bottom:8px;padding-bottom:8px;">
-      <div style="font-family:Cinzel,serif;font-size:8px;color:rgba(212,175,55,.45);padding-left:2px;">All</div>
+      <div style="font-family:Cinzel,serif;font-size:8px;color:rgba(212,175,55,.45);padding-left:2px;" data-i18n="pg.all">All</div>
       <div class="cb-cell"><input type="checkbox" id="cbMasterArrow" class="cb-master cb-master-arrow" checked onchange="toggleAllCb('arrow',this.checked)"></div>
       <div class="cb-cell"><input type="checkbox" id="cbMasterColor" class="cb-master cb-master-color" checked onchange="toggleAllCb('color',this.checked)"></div>
     </div>
     <div id="palette"></div>
-    <div class="legend">Drag planets into chart, or tap one then tap a house.<br>Tap a placed planet to remove it.<br><br><span style="color:#d4af37">Asc</span> = house 1.</div>
+    <!-- Filled in by refreshStaticText(): the string interpolates the Asc
+         token, so it can't ride on a plain data-i18n attribute. -->
+    <div class="legend" id="paletteLegend">Drag planets into chart, or tap one then tap a house.<br>Tap a placed planet to remove it.<br><br><span style="color:#d4af37">Asc</span> = house 1.</div>
   </div>
 </div>
 
 <div class="dashboard-container">
   <div class="dash-tabs">
-    <div class="dash-tab tab-good active-tab" onclick="switchTab('good')">✦ Goodness</div>
-    <div class="dash-tab tab-bad"  onclick="switchTab('bad')">☽ Badness</div>
-    <div class="dash-tab tab-well" onclick="switchTab('well')">⊕ Wellness</div>
-    <div class="dash-tab tab-plan" onclick="switchTab('plan')">☯ Subathuva</div>
-    <div class="dash-tab tab-stana" onclick="switchTab('stana')">★ Stana Bala</div>
-    <div class="dash-tab tab-dig"  onclick="switchTab('dig')">◈ Dig+Nish Bala</div>
-    <div class="dash-tab tab-total" onclick="switchTab('total')">⊛ Total Strength</div>
-    <div class="dash-tab tab-sigcol" onclick="switchTab('sigcol')">🎨 Sign Colors</div>
+    <div class="dash-tab tab-good active-tab" onclick="switchTab('good')">✦ <span data-i18n="pg.tab_good">Goodness</span></div>
+    <div class="dash-tab tab-bad"  onclick="switchTab('bad')">☽ <span data-i18n="pg.tab_bad">Badness</span></div>
+    <div class="dash-tab tab-well" onclick="switchTab('well')">⊕ <span data-i18n="pg.tab_well">Wellness</span></div>
+    <div class="dash-tab tab-plan" onclick="switchTab('plan')">☯ <span data-i18n="pg.tab_plan">Subathuva</span></div>
+    <div class="dash-tab tab-stana" onclick="switchTab('stana')">★ <span data-i18n="pg.tab_stana">Stana Bala</span></div>
+    <div class="dash-tab tab-dig"  onclick="switchTab('dig')">◈ <span data-i18n="pg.tab_dig">Dig+Nish Bala</span></div>
+    <div class="dash-tab tab-total" onclick="switchTab('total')">⊛ <span data-i18n="pg.tab_total">Total Strength</span></div>
+    <div class="dash-tab tab-sigcol" onclick="switchTab('sigcol')">🎨 <span data-i18n="pg.tab_sigcol">Sign Colors</span></div>
   </div>
   <div class="dashboard">
     <div class="dash-panel active-panel" id="panel-good">
-      <h2 class="good-title">✦ Goodness Dashboard ✦</h2>
-      <div class="dash-sections" id="sections-good"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="good-title">✦ <span data-i18n="pg.panel_good">Goodness Dashboard</span> ✦</h2>
+      <div class="dash-sections" id="sections-good"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-bad">
-      <h2 class="bad-title">☽ Badness Dashboard ☽</h2>
-      <div class="dash-sections" id="sections-bad"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="bad-title">☽ <span data-i18n="pg.panel_bad">Badness Dashboard</span> ☽</h2>
+      <div class="dash-sections" id="sections-bad"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-well">
-      <h2 class="well-title">⊕ Wellness Dashboard ⊕</h2>
-      <div class="dash-sections" id="sections-well"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="well-title">⊕ <span data-i18n="pg.panel_well">Wellness Dashboard</span> ⊕</h2>
+      <div class="dash-sections" id="sections-well"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-plan">
-      <h2 class="plan-title">☯ Subathuva — Planet Wellness ☯</h2>
-      <div class="dash-sections" id="sections-plan"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="plan-title">☯ <span data-i18n="pg.panel_plan">Subathuva — Planet Wellness</span> ☯</h2>
+      <div class="dash-sections" id="sections-plan"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-stana">
-      <h2 class="stana-title">★ Stana Bala (Positional Strength) ★</h2>
-      <div class="dash-sections" id="sections-stana"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="stana-title">★ <span data-i18n="pg.panel_stana">Stana Bala (Positional Strength)</span> ★</h2>
+      <div class="dash-sections" id="sections-stana"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-dig">
-      <h2 class="dig-title">◈ Dig Bala + Nish Bala ◈</h2>
-      <div class="dash-sections" id="sections-dig"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="dig-title">◈ <span data-i18n="pg.panel_dig">Dig Bala + Nish Bala</span> ◈</h2>
+      <div class="dash-sections" id="sections-dig"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-total">
-      <h2 class="total-title">⊛ Total Planet Strength ⊛</h2>
-      <div class="dash-sections" id="sections-total"><div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div></div>
+      <h2 class="total-title">⊛ <span data-i18n="pg.panel_total">Total Planet Strength</span> ⊛</h2>
+      <div class="dash-sections" id="sections-total"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
     </div>
     <div class="dash-panel" id="panel-sigcol">
-      <h2 class="sigcol-title">🎨 Sign Color Breakdown 🎨</h2>
-      <div id="sections-sigcol"><div class="no-data">Place planets to see sign colors.</div></div>
+      <h2 class="sigcol-title">🎨 <span data-i18n="pg.panel_sigcol">Sign Color Breakdown</span> 🎨</h2>
+      <div id="sections-sigcol"><div class="no-data" data-i18n="pg.no_data_colors">Place planets to see sign colors.</div></div>
     </div>
   </div>
 </div>
 
 <script>
+// ═══════════════════════════════════════════════════
+//  TRANSLATION SHORTHANDS
+// ═══════════════════════════════════════════════════
+// Every identifier below stays English - SIGNS, the planet codes, the score
+// keys - so all the astrology maths is unchanged. Only the strings that
+// reach the DOM go through these, at render time.
+const T  = (key, params) => I18N.t(key, params);            // UI string
+const PN = (code) => I18N.term('pg_planet', code);          // full planet name
+const PA = (code) => I18N.term('pg_planet_abbr', code);     // chart-token label
+const SN = (sign) => I18N.term('sign', sign);               // rashi name
+
+// First `n` *graphemes* of a string. Plain .slice() counts UTF-16 units, so
+// it can strip the pulli off a Tamil cluster and leave "கும" where "கும்"
+// was meant; Intl.Segmenter keeps each cluster whole.
+const _segmenter = typeof Intl!=='undefined' && Intl.Segmenter
+  ? new Intl.Segmenter(undefined,{granularity:'grapheme'}) : null;
+function shortLabel(text,n){
+  if(!_segmenter) return text.slice(0,n);
+  return [..._segmenter.segment(text)].slice(0,n).map(s=>s.segment).join('');
+}
+const EL = (el)   => I18N.term('element', el);
+const MO = (m)    => I18N.term('modality', m);
+const DI = (d)    => I18N.term('direction', d);
+
+// Score "sources" are built as compact tokens like "Jup(+30)" or
+// "Sat(Ketu-mitig,-12)". Rather than thread translation through the scoring
+// maths, the planet code and the handful of qualifier words are swapped here,
+// at the point the string is displayed.
+const SRC_WORDS={
+  'Moon-dark-self':'pg.src_moon_dark_self',
+  'Moon-dark':'pg.src_moon_dark',
+  'Moon-self':'pg.src_moon_self',
+  'Ketu-mitig':'pg.src_ketu_mitig',
+};
+function SRC(text){
+  if(!text) return text;
+  let out=text;
+  // Longest first, so "Moon-dark-self" isn't half-matched by "Moon-dark".
+  Object.keys(SRC_WORDS).sort((a,b)=>b.length-a.length).forEach(word=>{
+    out=out.split(word).join(T(SRC_WORDS[word]));
+  });
+  out=out.replace(/\bMoon\b/g,PN('Mon'));
+  ['Sun','Mon','Mar','Mer','Jup','Ven','Sat','Rahu','Ketu'].forEach(code=>{
+    out=out.replace(new RegExp('\\b'+code+'\\b','g'),PA(code));
+  });
+  return out;
+}
+const SRCLIST=(arr)=>arr.map(SRC).join(', ');
+
 // ═══════════════════════════════════════════════════
 //  SIGN / PLANET METADATA
 // ═══════════════════════════════════════════════════
@@ -619,7 +696,11 @@ for(let i=0;i<16;i++){
   if(!GRID_SIGNS[i]){cell.classList.add('empty');}
   else{
     cellPlanets[i]=[];
-    const lbl=document.createElement('div');lbl.className='sign-label';lbl.textContent=GRID_SIGNS[i];cell.appendChild(lbl);
+    const lbl=document.createElement('div');lbl.className='sign-label';
+    // data-i18n-term lets I18N.apply() retranslate the sign labels on a
+    // language switch without rebuilding the grid.
+    lbl.setAttribute('data-i18n-term','sign:'+GRID_SIGNS[i]);
+    lbl.textContent=SN(GRID_SIGNS[i]);cell.appendChild(lbl);
     const pc=document.createElement('div');pc.className='planets-container';cell.appendChild(pc);
     cell.addEventListener('dragover',onDragOver);
     cell.addEventListener('drop',e=>onDrop(e,i));
@@ -657,7 +738,7 @@ PLANETS.forEach(p=>{
     const cbArr=document.createElement('input');
     cbArr.type='checkbox'; cbArr.checked=true;
     cbArr.className='cb-arrow'; cbArr.id='cbarr-'+p;
-    cbArr.title='Show aspect arrows for '+p;
+    cbArr.title=T('pg.show_arrows_for',{planet:PN(p)});
     cbArr.addEventListener('change',function(){
       showArrow[p]=this.checked;
       updateMasterCb('arrow');
@@ -672,7 +753,7 @@ PLANETS.forEach(p=>{
     const cbCol=document.createElement('input');
     cbCol.type='checkbox'; cbCol.checked=true;
     cbCol.className='cb-color'; cbCol.id='cbcol-'+p;
-    cbCol.title='Show sign colors for '+p;
+    cbCol.title=T('pg.show_colors_for',{planet:PN(p)});
     cbCol.addEventListener('change',function(){
       showColor[p]=this.checked;
       updateMasterCb('color');
@@ -720,7 +801,8 @@ function updateMasterCb(type){
 }
 
 function createToken(planet,moonBright){
-  const t=document.createElement('div');t.className='planet-token';t.textContent=planet;
+  const t=document.createElement('div');t.className='planet-token';t.textContent=PA(planet);
+  t.title=PN(planet);
   t.draggable=true;t.dataset.planet=planet;
   let bg,textCol,border;
   if(planet==='Mon'){
@@ -822,7 +904,7 @@ function removePaletteToken(p){
   // Add placeholder text so the row doesn't collapse
   const ph=document.createElement('div');
   ph.className='palette-placeholder';
-  ph.textContent=p+' (on chart)';
+  ph.textContent=T('pg.on_chart',{planet:PN(p)});
   s.appendChild(ph);
 }
 function ensurePaletteToken(p){
@@ -1216,9 +1298,9 @@ const BC={
 //  HTML BUILDERS
 // ═══════════════════════════════════════════════════
 function pBadge(planet){
-  const c=PLANET_BASE[planet];if(!c) return planet;
+  const c=PLANET_BASE[planet];if(!c) return PA(planet);
   const bg=c.bg==='transparent'?'rgba(212,175,55,.15)':c.bg;
-  return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:'Cinzel',serif;background:${bg};color:${c.text};box-shadow:0 1px 3px rgba(0,0,0,.4)">${planet}</span>`;
+  return `<span title="${PN(planet)}" style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;font-family:'Cinzel',serif;background:${bg};color:${c.text};box-shadow:0 1px 3px rgba(0,0,0,.4)">${PA(planet)}</span>`;
 }
 
 function buildBar(pct,bg,height='8px'){
@@ -1227,39 +1309,45 @@ function buildBar(pct,bg,height='8px'){
 }
 
 function buildSignsTable(ranked,ascSIdx,mode){
-  if(!ranked.length) return '<div class="no-data">No data.</div>';
+  if(!ranked.length) return `<div class="no-data">${T('pg.no_data_simple')}</div>`;
   const maxS=Math.max(...ranked.map(d=>d.score),1);
+  const hCol=mode==='good'?'rgba(68,221,136,.7)':'rgba(255,80,70,.7)';
   let html=`<table class="signs-table"><tr>`;
-  if(mode==='good') html+=`<th style="color:rgba(68,221,136,.7)">Sign</th><th style="color:rgba(68,221,136,.7)">H</th><th style="color:rgba(68,221,136,.7)">Score</th><th style="color:rgba(68,221,136,.7)">Sources</th>`;
-  else html+=`<th style="color:rgba(255,80,70,.7)">Sign</th><th style="color:rgba(255,80,70,.7)">H</th><th style="color:rgba(255,80,70,.7)">Score</th><th style="color:rgba(255,80,70,.7)">Sources</th>`;
+  ['pg.sign','pg.h','pg.score','pg.sources'].forEach(key=>{
+    html+=`<th style="color:${hCol}">${T(key)}</th>`;
+  });
   html+='</tr>';
   ranked.forEach(d=>{
     const sign=SIGNS[d.sIdx];const el=SIGN_ELEMENT[sign];
     const hn=ascSIdx!==-1?((d.sIdx-ascSIdx+12)%12)+1:'–';
     const pct=Math.round(d.score/maxS*100);
     const bg=mode==='good'?BC.good:BC.bad;
-    const uniq=[...new Set(d.sources)].join(', ');
-    html+=`<tr><td><span class="el-${el}">${sign}</span></td><td style="text-align:center;color:#ffe060">${hn}</td>
+    const uniq=SRCLIST([...new Set(d.sources)]);
+    html+=`<tr><td><span class="el-${el}">${SN(sign)}</span></td><td style="text-align:center;color:#ffe060">${hn}</td>
       <td style="min-width:90px">${buildBar(pct,bg,'6px')}</td>
       <td style="font-size:8.5px;color:rgba(200,195,175,.55)">${uniq||'—'}</td></tr>`;
   });
   return html+'</table>';
 }
 
+// The three category breakdowns (element / modality / direction) share a
+// shape, so they share an order table too - key, translator, badge class.
+const CAT_ORDERS={
+  el:  {title:'pg.elements',  label:EL, keys:['fire','earth','air','water']},
+  mod: {title:'pg.modality',  label:MO, keys:['movable','fixed','mutable']},
+  dir: {title:'pg.direction', label:DI, keys:['east','south','west','north']},
+};
+
 function buildCatSection(cat,mode){
-  const elOrder=[['fire','Fire'],['earth','Earth'],['air','Air'],['water','Water']];
-  const modOrder=[['movable','Movable'],['fixed','Fixed'],['mutable','Mutable']];
-  const dirOrder=[['east','East'],['south','South'],['west','West'],['north','North']];
   const color=mode==='good'?'rgba(68,221,136,.8)':'rgba(255,80,70,.8)';
-  const bg=mode==='good'?BC.good:BC.bad;
   let html='';
-  [[elOrder,'Elements'],[modOrder,'Modality'],[dirOrder,'Direction']].forEach(([order,title])=>{
-    const key=title==='Elements'?'el':title==='Modality'?'mod':'dir';
+  ['el','mod','dir'].forEach(key=>{
+    const {title,label,keys}=CAT_ORDERS[key];
     const vals=Object.values(cat[key]);const maxV=Math.max(...vals,1);
-    html+=`<div class="dash-section"><h3 style="color:${color}">✦ ${title}</h3>`;
-    order.forEach(([k,lbl])=>{
+    html+=`<div class="dash-section"><h3 style="color:${color}">✦ ${T(title)}</h3>`;
+    keys.forEach(k=>{
       const pct=Math.round(cat[key][k]/maxV*100);
-      html+=`<div class="dash-row"><div class="dash-label"><span class="dash-tag badge-${k}">${lbl}</span></div>${buildBar(pct,BC[k])}<span class="dash-pct ${mode==='good'?'good-pct':'bad-pct'}">${pct}%</span></div>`;
+      html+=`<div class="dash-row"><div class="dash-label"><span class="dash-tag badge-${k}">${label(k)}</span></div>${buildBar(pct,BC[k])}<span class="dash-pct ${mode==='good'?'good-pct':'bad-pct'}">${pct}%</span></div>`;
     });
     html+='</div>';
   });
@@ -1276,7 +1364,7 @@ function updateAllDashboards(){
   const moonSIdx=findPlanetSignIdx('Mon');
   const bright=moonSIdx!==-1?moonBrightness(moonSIdx,sunSIdx):1.0;
 
-  const noData='<div class="no-data" style="grid-column:1/-1">Place planets to see analysis.</div>';
+  const noData=`<div class="no-data" style="grid-column:1/-1">${T('pg.no_data')}</div>`;
   if(!anyPlaced){['good','bad','well','plan','stana','dig','total'].forEach(t=>document.getElementById(`sections-${t}`).innerHTML=noData);updateSignColorsDashboard();return;}
 
   const {goodScores,badScores}=computeSignScores();
@@ -1287,32 +1375,33 @@ function updateAllDashboards(){
   const goodRanked=Object.entries(goodScores).map(([si,d])=>({sIdx:parseInt(si),...d})).filter(d=>d.score>0).sort((a,b)=>b.score-a.score);
   const moonPct=Math.round(bright*100);
   const dist=moonSIdx!==-1&&sunSIdx!==-1?((moonSIdx-sunSIdx+12)%12)+1:null;
-  const phase=bright>=.99?'🌕 Full Moon':bright<=.01?'🌑 New Moon':dist<=7?`🌒 Waxing(${moonPct}%)`:`🌖 Waning(${moonPct}%)`;
+  const phase=bright>=.99?`🌕 ${T('pg.full_moon')}`:bright<=.01?`🌑 ${T('pg.new_moon_short')}`
+    :dist<=7?`🌒 ${T('pg.waxing',{pct:moonPct})}`:`🌖 ${T('pg.waning',{pct:moonPct})}`;
   const mc=moonColor(bright);
-  const moonSection=`<div class="dash-section"><h3 class="good-h3">☽ Moon Phase</h3>
+  const moonSection=`<div class="dash-section"><h3 class="good-h3">☽ ${T('pg.moon_phase')}</h3>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div style="color:rgba(200,215,255,.9);font-size:12px">${phase}</div>
-      ${dist!==null?`<div style="font-size:10px;color:rgba(180,190,220,.65)">House <b style="color:#ffe060">${dist}</b> from Sun (clockwise)</div>`:''}
+      ${dist!==null?`<div style="font-size:10px;color:rgba(180,190,220,.65)">${T('pg.house_from_sun',{n:`<b style="color:#ffe060">${dist}</b>`})}</div>`:''}
       <div style="display:flex;align-items:center;gap:8px">${buildBar(moonPct,'linear-gradient(90deg,#334466,#aaccff)')}<span class="dash-pct good-pct">${moonPct}%</span></div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
         <div style="width:14px;height:14px;border-radius:50%;background:${mc.bg};border:1px solid rgba(150,170,220,.5)"></div>
-        <span style="font-size:9px;color:rgba(200,215,255,.6)">Moon color at current phase</span>
+        <span style="font-size:9px;color:rgba(200,215,255,.6)">${T('pg.moon_color_note')}</span>
       </div>
     </div></div>`;
   document.getElementById('sections-good').innerHTML=
-    `<div class="dash-section" style="grid-column:1/-1"><h3 class="good-h3">✦ Signs Goodness</h3>${buildSignsTable(goodRanked,ascSIdx,'good')}</div>`+
+    `<div class="dash-section" style="grid-column:1/-1"><h3 class="good-h3">✦ ${T('pg.signs_goodness')}</h3>${buildSignsTable(goodRanked,ascSIdx,'good')}</div>`+
     buildCatSection(goodCat,'good')+moonSection;
 
   // ── BADNESS TAB ──
   const badRanked=Object.entries(badScores).map(([si,d])=>({sIdx:parseInt(si),...d})).filter(d=>d.score>0).sort((a,b)=>b.score-a.score);
   const moonBadPct=moonSIdx!==-1&&sunSIdx!==-1?Math.round(moonBadFactor(moonSIdx,sunSIdx)*100):0;
-  const moonBadSection=`<div class="dash-section"><h3 class="bad-h3">☽ Moon Darkness</h3>
-    ${moonBadPct===0?'<div class="no-data">Moon is not in dark phase.</div>':`<div style="display:flex;flex-direction:column;gap:6px">
-      <div style="color:rgba(255,160,140,.9);font-size:11px">${dist===1?'🌑 New Moon — No Light':dist===2?'🌒 2nd from Sun':'🌘 12th from Sun'}</div>
+  const moonBadSection=`<div class="dash-section"><h3 class="bad-h3">☽ ${T('pg.moon_darkness')}</h3>
+    ${moonBadPct===0?`<div class="no-data">${T('pg.moon_not_dark')}</div>`:`<div style="display:flex;flex-direction:column;gap:6px">
+      <div style="color:rgba(255,160,140,.9);font-size:11px">${dist===1?`🌑 ${T('pg.new_moon')}`:dist===2?`🌒 ${T('pg.second_from_sun')}`:`🌘 ${T('pg.twelfth_from_sun')}`}</div>
       <div style="display:flex;align-items:center;gap:8px">${buildBar(moonBadPct,'linear-gradient(90deg,#660011,#cc2233)')}<span class="dash-pct bad-pct">${moonBadPct}%</span></div>
     </div>`}</div>`;
   document.getElementById('sections-bad').innerHTML=
-    `<div class="dash-section" style="grid-column:1/-1"><h3 class="bad-h3">☽ Signs Badness</h3>${buildSignsTable(badRanked,ascSIdx,'bad')}</div>`+
+    `<div class="dash-section" style="grid-column:1/-1"><h3 class="bad-h3">☽ ${T('pg.signs_badness')}</h3>${buildSignsTable(badRanked,ascSIdx,'bad')}</div>`+
     buildCatSection(badCat,'bad')+moonBadSection;
 
   // ── WELLNESS TAB ──
@@ -1322,11 +1411,11 @@ function updateAllDashboards(){
   const maxAbsNet=Math.max(...wellRanked.map(d=>Math.abs(d.net)),1);
   const maxGood=Math.max(...wellRanked.map(d=>d.good),1);
   const maxBad2=Math.max(...wellRanked.map(d=>d.bad),1);
-  let wellHtml=`<div class="dash-section" style="grid-column:1/-1"><h3 class="well-h3">⊕ Signs Wellness</h3>
+  let wellHtml=`<div class="dash-section" style="grid-column:1/-1"><h3 class="well-h3">⊕ ${T('pg.signs_wellness')}</h3>
     <table class="signs-table"><tr>
-      <th style="color:rgba(212,175,55,.7)">Sign</th><th style="color:rgba(212,175,55,.7)">H</th>
-      <th style="color:rgba(68,221,136,.7)">Good</th><th style="color:rgba(255,80,70,.7)">Bad</th>
-      <th style="color:rgba(212,175,55,.7)">Net</th></tr>`;
+      <th style="color:rgba(212,175,55,.7)">${T('pg.sign')}</th><th style="color:rgba(212,175,55,.7)">${T('pg.h')}</th>
+      <th style="color:rgba(68,221,136,.7)">${T('pg.good')}</th><th style="color:rgba(255,80,70,.7)">${T('pg.bad')}</th>
+      <th style="color:rgba(212,175,55,.7)">${T('pg.net')}</th></tr>`;
   wellRanked.forEach(d=>{
     const sign=SIGNS[d.sIdx];const el=SIGN_ELEMENT[sign];
     const hn=ascSIdx!==-1?((d.sIdx-ascSIdx+12)%12)+1:'–';
@@ -1335,7 +1424,7 @@ function updateAllDashboards(){
     const netColor=isPos?'#44ff88':d.net<0?'#ff4433':'#aaa';
     const netBg=isPos?BC.good:BC.bad;
     const netStr=d.net>0?`+${Math.round(d.net)}`:Math.round(d.net)===0?'0':`${Math.round(d.net)}`;
-    wellHtml+=`<tr><td><span class="el-${el}">${sign}</span></td><td style="text-align:center;color:#ffe060">${hn}</td>
+    wellHtml+=`<tr><td><span class="el-${el}">${SN(sign)}</span></td><td style="text-align:center;color:#ffe060">${hn}</td>
       <td><span style="color:#44dd88;font-size:10px;font-weight:700">${Math.round(d.good/maxGood*100)}%</span></td>
       <td><span style="color:#ff6655;font-size:10px;font-weight:700">${Math.round(d.bad/maxBad2*100)}%</span></td>
       <td><div style="display:flex;align-items:center;gap:4px">
@@ -1352,10 +1441,12 @@ function updateAllDashboards(){
   ['fire','earth','air','water'].forEach(k=>wellCatEl[k]=(goodCat.el[k]||0)-(badCat.el[k]||0));
   ['movable','fixed','mutable'].forEach(k=>wellCatMod[k]=(goodCat.mod[k]||0)-(badCat.mod[k]||0));
   ['east','south','west','north'].forEach(k=>wellCatDir[k]=(goodCat.dir[k]||0)-(badCat.dir[k]||0));
-  function buildWellCat(catData,order,title){
+  function buildWellCat(catData,catKey){
+    const {title,label,keys}=CAT_ORDERS[catKey];
     const maxAbs=Math.max(...Object.values(catData).map(v=>Math.abs(v)),1);
-    let h=`<div class="dash-section"><h3 class="well-h3">⊕ ${title}</h3>`;
-    order.forEach(([k,lbl])=>{
+    let h=`<div class="dash-section"><h3 class="well-h3">⊕ ${T(title)}</h3>`;
+    keys.forEach(k=>{
+      const lbl=label(k);
       const net=catData[k];const pct=Math.round(Math.abs(net)/maxAbs*50);
       const isPos=net>0;const bg=isPos?BC.good:BC.bad;const col=isPos?'#44ff88':net<0?'#ff4433':'#aaa';
       const str=net>0?`+${Math.round(net)}`:Math.round(net)===0?'0':`${Math.round(net)}`;
@@ -1369,9 +1460,9 @@ function updateAllDashboards(){
     return h+'</div>';
   }
   document.getElementById('sections-well').innerHTML=wellHtml+
-    buildWellCat(wellCatEl,[['fire','Fire'],['earth','Earth'],['air','Air'],['water','Water']],'Elements')+
-    buildWellCat(wellCatMod,[['movable','Movable'],['fixed','Fixed'],['mutable','Mutable']],'Modality')+
-    buildWellCat(wellCatDir,[['east','East'],['south','South'],['west','West'],['north','North']],'Direction');
+    buildWellCat(wellCatEl,'el')+
+    buildWellCat(wellCatMod,'mod')+
+    buildWellCat(wellCatDir,'dir');
 
   // ── SUBATHUVA (PLANET) TAB ──
   const pScores=computePlanetScores();
@@ -1382,13 +1473,13 @@ function updateAllDashboards(){
   const maxPB=Math.max(...pEntries.map(e=>e.badness),1);
   const maxPW=Math.max(...pEntries.map(e=>Math.abs(e.wellness)),1);
   function makePlanetTable(rows,mode,maxV){
-    if(!rows.length) return '<div class="no-data">None.</div>';
+    if(!rows.length) return `<div class="no-data">${T('pg.none_simple')}</div>`;
     const color=mode==='good'?'rgba(68,221,136,.6)':mode==='bad'?'rgba(255,100,80,.6)':'rgba(204,136,255,.6)';
     const bg=mode==='good'?BC.good:mode==='bad'?BC.bad:null;
     return `<table style="width:100%;border-collapse:collapse;font-size:10px">
-      <tr><th style="font-family:'Cinzel',serif;font-size:8px;color:${color};padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Planet</th>
-      <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Score</th>
-      <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Sources</th></tr>
+      <tr><th style="font-family:'Cinzel',serif;font-size:8px;color:${color};padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.planet')}</th>
+      <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.score')}</th>
+      <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.sources')}</th></tr>
       ${rows.map(e=>{
         const val=mode==='good'?e.goodness:mode==='bad'?e.badness:e.wellness;
         const pct=Math.round(Math.abs(val)/maxV*100);
@@ -1396,7 +1487,7 @@ function updateAllDashboards(){
         const barBg=mode==='wellness'?(isNeg?BC.bad:BC.good):(bg||BC.good);
         const vColor=mode==='good'?'#44ff88':mode==='bad'?'#ff6655':(isNeg?'#ff6655':'#44ff88');
         const vStr=mode==='wellness'?(val>=0?`+${Math.round(val)}`:`${Math.round(val)}`):Math.round(Math.abs(val));
-        const src=(mode==='good'?e.goodSrc:mode==='bad'?e.badSrc:[...e.goodSrc,...e.badSrc]).slice(0,5).join(', ');
+        const src=SRCLIST((mode==='good'?e.goodSrc:mode==='bad'?e.badSrc:[...e.goodSrc,...e.badSrc]).slice(0,5));
         return `<tr><td style="padding:4px">${pBadge(e.planet)}</td>
           <td style="padding:4px"><div style="display:flex;align-items:center;gap:5px">${buildBar(pct,barBg,'6px')}<span style="font-size:10px;font-weight:700;color:${vColor};min-width:28px">${vStr}</span></div></td>
           <td style="padding:4px;font-size:8.5px;color:rgba(200,195,175,.5);max-width:140px;word-break:break-word">${src||'—'}</td></tr>`;
@@ -1406,15 +1497,15 @@ function updateAllDashboards(){
   const byB=[...pEntries].sort((a,b)=>b.badness-a.badness).filter(e=>e.badness>0);
   const byW=[...pEntries].sort((a,b)=>b.wellness-a.wellness);
   document.getElementById('sections-plan').innerHTML=
-    `<div class="dash-section"><h3 class="plan-h3">✦ Planet Goodness</h3>${makePlanetTable(byG,'good',maxPG)}</div>`+
-    `<div class="dash-section"><h3 class="plan-h3">☽ Planet Badness</h3>${makePlanetTable(byB,'bad',maxPB)}</div>`+
-    `<div class="dash-section" style="grid-column:span 2"><h3 class="plan-h3">☯ Planet Wellness (Good − Bad)</h3>
+    `<div class="dash-section"><h3 class="plan-h3">✦ ${T('pg.planet_goodness')}</h3>${makePlanetTable(byG,'good',maxPG)}</div>`+
+    `<div class="dash-section"><h3 class="plan-h3">☽ ${T('pg.planet_badness')}</h3>${makePlanetTable(byB,'bad',maxPB)}</div>`+
+    `<div class="dash-section" style="grid-column:span 2"><h3 class="plan-h3">☯ ${T('pg.planet_wellness')}</h3>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
-        <tr><th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(204,136,255,.6);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Planet</th>
-        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(68,221,136,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Good</th>
-        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(255,80,70,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Bad</th>
-        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(204,136,255,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Net</th>
-        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.4);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">Influences</th></tr>
+        <tr><th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(204,136,255,.6);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.planet')}</th>
+        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(68,221,136,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.good')}</th>
+        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(255,80,70,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.bad')}</th>
+        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(204,136,255,.5);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.net')}</th>
+        <th style="font-family:'Cinzel',serif;font-size:8px;color:rgba(200,195,175,.4);padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.08)">${T('pg.influences')}</th></tr>
         ${byW.map(e=>{
           const wPct=Math.round(Math.abs(e.wellness)/maxPW*50);
           const gPct=Math.round(e.goodness/maxPG*100);
@@ -1423,7 +1514,7 @@ function updateAllDashboards(){
           const wC=isPos?'#44ff88':'#ff6655';
           const wBg=isPos?BC.good:BC.bad;
           const wStr=e.wellness>=0?`+${Math.round(e.wellness)}`:`${Math.round(e.wellness)}`;
-          const src=[...new Set([...e.goodSrc,...e.badSrc])].slice(0,5).join(', ');
+          const src=SRCLIST([...new Set([...e.goodSrc,...e.badSrc])].slice(0,5));
           return `<tr><td style="padding:4px">${pBadge(e.planet)}</td>
             <td style="padding:4px"><span style="color:#44ff88;font-size:10px;font-weight:700">${gPct}%</span></td>
             <td style="padding:4px"><span style="color:#ff6655;font-size:10px;font-weight:700">${bPct}%</span></td>
@@ -1447,28 +1538,22 @@ function updateAllDashboards(){
   const maxStana=Math.max(...stana.map(s=>s.score),1);
   const sortedStana=[...stana].sort((a,b)=>b.score-a.score);
   document.getElementById('sections-stana').innerHTML=
-    `<div class="dash-section" style="grid-column:1/-1"><h3 class="stana-h3">★ Stana Bala (Positional Strength)</h3>
+    `<div class="dash-section" style="grid-column:1/-1"><h3 class="stana-h3">★ ${T('pg.panel_stana')}</h3>
       <table class="signs-table"><tr>
-        <th style="color:rgba(85,204,255,.7)">Planet</th>
-        <th style="color:rgba(85,204,255,.7)">Sign</th>
-        <th style="color:rgba(85,204,255,.7)">Status</th>
-        <th style="color:rgba(85,204,255,.7)">Score</th>
-        <th style="color:rgba(85,204,255,.7)">Strength</th></tr>
+        ${['pg.planet','pg.sign','pg.status','pg.score','pg.strength']
+          .map(k=>`<th style="color:rgba(85,204,255,.7)">${T(k)}</th>`).join('')}</tr>
         ${sortedStana.map(({planet,sign,score,label,neechaBhanga})=>{
           const pct=Math.round(score/maxStana*100);
           const el=SIGN_ELEMENT[sign];
           const lColor=stanaColor[label.split('(')[0].trim()]||'#aaaaaa';
           return `<tr><td>${pBadge(planet)}</td>
-            <td><span class="el-${el}">${sign}</span></td>
-            <td style="font-size:9px;color:${lColor}">${label}${neechaBhanga?' 🔄':''}</td>
+            <td><span class="el-${el}">${SN(sign)}</span></td>
+            <td style="font-size:9px;color:${lColor}">${I18N.term('stana_label',label)}${neechaBhanga?' 🔄':''}</td>
             <td style="font-weight:700;color:${lColor}">${score}</td>
             <td style="min-width:100px">${buildBar(pct,BC.stana,'6px')}</td></tr>`;
         }).join('')}
       </table>
-      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.45)">
-        Score: Exaltation=100 · Moola Trikona=80 · Own Sign=60 · Friend=40 · Neutral=30 · Enemy=20 · Debilitation=0
-        · 🔄 = Neecha Bhanga (cancelled debilitation) → 35
-      </div>
+      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.45)">${T('pg.stana_note')}</div>
     </div>`;
   } // end stana else block
 
@@ -1480,35 +1565,30 @@ function updateAllDashboards(){
   const maxNish=Math.max(...digNish.map(d=>d.nish),1);
   const maxTotal=Math.max(...digNish.map(d=>d.total),1);
   const sortedDig=[...digNish].sort((a,b)=>b.total-a.total);
-  const digInfo={Mon:'Best at 4th (Kendra)',Ven:'Best at 4th (Kendra)',Jup:'Best at 1st (Lagna)',Mer:'Best at 1st (Lagna)',Sat:'Best at 7th',Mar:'Best at 10th (MC)',Sun:'Best at 10th (MC)',Rahu:'No Dig Bala',Ketu:'No Dig Bala'};
   document.getElementById('sections-dig').innerHTML=
-    `<div class="dash-section" style="grid-column:1/-1"><h3 class="dig-h3">◈ Dig Bala + Nish Bala</h3>
+    `<div class="dash-section" style="grid-column:1/-1"><h3 class="dig-h3">◈ ${T('pg.panel_dig')}</h3>
       <table class="signs-table"><tr>
-        <th style="color:rgba(255,153,170,.7)">Planet</th>
-        <th style="color:rgba(255,153,170,.7)">Sign</th>
-        <th style="color:rgba(255,153,170,.7)">Dig Bala Info</th>
-        <th style="color:rgba(85,204,255,.7)">Dig</th>
-        <th style="color:rgba(255,204,68,.7)">Nish</th>
-        <th style="color:rgba(255,153,170,.7)">Combined</th></tr>
+        <th style="color:rgba(255,153,170,.7)">${T('pg.planet')}</th>
+        <th style="color:rgba(255,153,170,.7)">${T('pg.sign')}</th>
+        <th style="color:rgba(255,153,170,.7)">${T('pg.dig_bala_info')}</th>
+        <th style="color:rgba(85,204,255,.7)">${T('pg.dig')}</th>
+        <th style="color:rgba(255,204,68,.7)">${T('pg.nish')}</th>
+        <th style="color:rgba(255,153,170,.7)">${T('pg.combined')}</th></tr>
         ${sortedDig.map(({planet,sign,dig,nish,total})=>{
           const el=SIGN_ELEMENT[sign];
           const dPct=Math.round(dig/maxDig*100);
           const nPct=Math.round(nish/maxNish*100);
           const tPct=Math.round(total/maxTotal*100);
           return `<tr><td>${pBadge(planet)}</td>
-            <td><span class="el-${el}">${sign}</span></td>
-            <td style="font-size:8.5px;color:rgba(200,195,175,.55)">${digInfo[planet]||'—'}</td>
+            <td><span class="el-${el}">${SN(sign)}</span></td>
+            <td style="font-size:8.5px;color:rgba(200,195,175,.55)">${I18N.term('dig_info',planet)||'—'}</td>
             <td><div style="display:flex;align-items:center;gap:3px">${buildBar(dPct,BC.dig,'5px')}<span style="color:#ff99aa;font-size:9px;min-width:22px">${dig}</span></div></td>
             <td><div style="display:flex;align-items:center;gap:3px">${buildBar(nPct,BC.total,'5px')}<span style="color:#ffcc44;font-size:9px;min-width:22px">${nish}</span></div></td>
             <td><div style="display:flex;align-items:center;gap:3px">${buildBar(tPct,BC.stana,'5px')}<span style="color:#55ccff;font-size:9px;min-width:22px">${total}</span></div></td>
           </tr>`;
         }).join('')}
       </table>
-      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.4)">
-        Dig Bala = directional strength (0–100 based on distance from ideal house).
-        Nish Bala = temporal strength based on day/night nature and house placement.
-        Combined = average of both.
-      </div>
+      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.4)">${T('pg.dig_note')}</div>
     </div>`;
   } // end dig else block
 
@@ -1527,19 +1607,19 @@ function updateAllDashboards(){
     const digAvg=digEntries.length?digEntries.reduce((a,b)=>a+b.total,0)/digEntries.length:0;
     const total=Math.round(subW*40+stanaAvg*0.35+digAvg*0.25);
     const subWellStr=sub?`${sub.wellness>=0?'+':''}${Math.round(sub.wellness)}`:'-';
-    const stanaLabel=stanaEntries.map(s=>s.label).join(', ')||'—';
+    const stanaLabel=stanaEntries.map(s=>I18N.term('stana_label',s.label)).join(', ')||'—';
     return{planet,subWell:sub?sub.wellness:0,stana:Math.round(stanaAvg),dig:Math.round(digAvg),total,subWellStr,stanaLabel};
   });
   const sortedTotal=[...totalScores].sort((a,b)=>b.total-a.total);
   const maxT=Math.max(...sortedTotal.map(s=>Math.abs(s.total)),1);
   document.getElementById('sections-total').innerHTML=
-    `<div class="dash-section" style="grid-column:1/-1"><h3 class="total-h3">⊛ Combined Planet Strength</h3>
+    `<div class="dash-section" style="grid-column:1/-1"><h3 class="total-h3">⊛ ${T('pg.combined_strength')}</h3>
       <table class="signs-table"><tr>
-        <th style="color:rgba(255,204,68,.7)">Planet</th>
-        <th style="color:rgba(204,136,255,.7)">Subathuva</th>
-        <th style="color:rgba(85,204,255,.7)">Stana Bala</th>
-        <th style="color:rgba(255,153,170,.7)">Dig+Nish</th>
-        <th style="color:rgba(255,204,68,.7)">Total Strength</th></tr>
+        <th style="color:rgba(255,204,68,.7)">${T('pg.planet')}</th>
+        <th style="color:rgba(204,136,255,.7)">${T('pg.subathuva')}</th>
+        <th style="color:rgba(85,204,255,.7)">${T('pg.stana_bala')}</th>
+        <th style="color:rgba(255,153,170,.7)">${T('pg.dig_nish')}</th>
+        <th style="color:rgba(255,204,68,.7)">${T('pg.total_strength')}</th></tr>
         ${sortedTotal.map(({planet,subWellStr,stana:stS,dig:dg,total,stanaLabel})=>{
           const isPos=total>=0;
           const pct=Math.round(Math.abs(total)/maxT*100);
@@ -1555,9 +1635,7 @@ function updateAllDashboards(){
             </div></td></tr>`;
         }).join('')}
       </table>
-      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.4)">
-        Total = (Subathuva wellness × 40%) + (Stana Bala × 35%) + (Dig+Nish Bala × 25%)
-      </div>
+      <div style="margin-top:10px;font-size:9px;color:rgba(200,195,175,.4)">${T('pg.total_note')}</div>
     </div>`;
 
   // ── SIGN COLORS TAB ──
@@ -1569,26 +1647,17 @@ function updateAllDashboards(){
 //  SIGN COLORS DASHBOARD
 // ═══════════════════════════════════════════════════
 
-// Human-readable color names for planet colors
-const PLANET_COLOR_NAME={
-  Sun:'Orangish Gold',
-  Mon:'Silver-White (phase-dependent)',
-  Mar:'Vivid Red',
-  Jup:'Bright Gold',
-  Sat:'Royal Blue',
-  Ven:'Pinkish White',
-  Rahu:'Deep Black',
-  Ketu:'Reddish Brown-Black',
-  Mer:'Neon Green',
-};
+// Human-readable colour names live in the shared dictionary now, so they read
+// the same on this page as anywhere else - see TERMS["planet_colour"].
+const PLANET_COLOR_NAME=(planet)=>I18N.term('planet_colour',planet);
 
 // Named colors for blended results (rough perceptual mapping)
 function blendedColorName(layers){
   // layers = [{planet,type,rgb}]  type='placement'|'aspect'
-  if(!layers.length) return {name:'Default Parchment',hex:'#c8bd9e'};
+  if(!layers.length) return {name:T('pg.default_parchment'),hex:'#c8bd9e'};
 
   // Find the dominant hue based on planets present
-  const names=layers.map(l=>l.type==='aspect'?'Default (aspect)':PLANET_COLOR_NAME[l.planet]||l.planet);
+  const names=layers.map(l=>l.type==='aspect'?T('pg.aspect_overlay'):PLANET_COLOR_NAME(l.planet));
   // Compute blended RGB
   // We use the same radial-gradient stacking the chart does, but for the
   // card swatch we blend all equally
@@ -1621,7 +1690,7 @@ function updateSignColorsDashboard(){
   if(!el) return;
 
   const anyPlaced=Object.values(cellPlanets).some(a=>a&&a.length>0);
-  if(!anyPlaced){el.innerHTML='<div class="no-data">Place planets to see sign colors.</div>';return;}
+  if(!anyPlaced){el.innerHTML=`<div class="no-data">${T('pg.no_data_colors')}</div>`;return;}
 
   const sunSIdx=findPlanetSignIdx('Sun');
 
@@ -1661,10 +1730,10 @@ function updateSignColorsDashboard(){
           if(planet==='Mon'){
             const bright=moonBrightness(si,sunSIdx);
             const moonPct=Math.round(bright*100);
-            colorNameStr=moonPct>=99?'Full Moon Silver-White':moonPct<=1?'New Moon Dark':
-                         `Moon ${moonPct}% Brightness`;
+            colorNameStr=moonPct>=99?T('pg.full_moon_silver'):moonPct<=1?T('pg.new_moon_dark'):
+                         T('pg.moon_brightness',{pct:moonPct});
           } else {
-            colorNameStr=type==='aspect'?'Default (aspect overlay)':PLANET_COLOR_NAME[planet]||planet;
+            colorNameStr=type==='aspect'?T('pg.aspect_overlay'):PLANET_COLOR_NAME(planet);
           }
           signInfo[target].push({planet,type,rgb,hex,colorNameStr});
         }
@@ -1706,34 +1775,34 @@ function updateSignColorsDashboard(){
       const chipText=l.type==='aspect'?'rgba(200,195,175,.65)':l.hex;
       return `<span class="sign-color-chip" style="background:${chipBg};border:1px solid ${chipBorder};color:${chipText};">
         ${l.type!=='aspect'?`<span class="chip-dot" style="background:${l.hex};"></span>`:''}
-        <span>${l.planet}</span>
-        <span style="font-weight:400;opacity:.7;font-size:7.5px">${l.type==='aspect'?'(aspect)':'(placed)'}</span>
+        <span title="${PN(l.planet)}">${PA(l.planet)}</span>
+        <span style="font-weight:400;opacity:.7;font-size:7.5px">${l.type==='aspect'?T('pg.aspect_tag'):T('pg.placed_tag')}</span>
       </span>`;
     });
 
     // Color name strings
     const placedLayers=layers.filter(l=>l.type==='placement');
     const aspectLayers=layers.filter(l=>l.type==='aspect');
-    const colorDesc=layers.length===0?'Default Parchment':
+    const colorDesc=layers.length===0?T('pg.default_parchment'):
       [
         ...placedLayers.map(l=>l.colorNameStr),
-        ...aspectLayers.length?['+ Default (aspect overlay)']:[]
+        ...aspectLayers.length?['+ '+T('pg.aspect_overlay')]:[]
       ].join(', ');
 
     html+=`<div class="sign-color-card">
       <div class="sign-color-row">
         <!-- Swatch -->
         <div class="sign-swatch" style="background:${swatchBg};display:flex;align-items:center;justify-content:center;">
-          <span style="font-family:'Cinzel',serif;font-size:9px;font-weight:700;color:${swatchText};text-align:center;line-height:1.2;padding:2px;">${signName.slice(0,3)}</span>
+          <span style="font-family:'Cinzel',serif;font-size:9px;font-weight:700;color:${swatchText};text-align:center;line-height:1.2;padding:2px;">${shortLabel(SN(signName),3)}</span>
         </div>
         <!-- Info -->
         <div class="sign-color-info">
           <div class="sign-name">
-            <span class="el-${el2}">${signName}</span>
+            <span class="el-${el2}">${SN(signName)}</span>
             <span style="font-size:8px;margin-left:4px;color:rgba(200,195,175,.4)">${swatchBg}</span>
           </div>
           ${layers.length===0
-            ? '<div style="font-size:9px;color:rgba(200,195,175,.35);font-style:italic">No planetary influence — default parchment</div>'
+            ? `<div style="font-size:9px;color:rgba(200,195,175,.35);font-style:italic">${T('pg.no_influence')}</div>`
             : `<div class="sign-color-layers">${chipsHtml.join('')}</div>`
           }
           <div style="font-size:8px;color:rgba(200,195,175,.4);margin-top:3px;">${colorDesc}</div>
@@ -1746,7 +1815,40 @@ function updateSignColorsDashboard(){
   el.innerHTML=html;
 }
 
+// ── LANGUAGE ──────────────────────────────────────
+// Two kinds of text need attention on a switch: the few strings that
+// interpolate a translated value (so a plain data-i18n attribute can't carry
+// them), and everything the dashboards build at render time. I18N.apply()
+// covers the rest - the static chrome and the sign labels on the grid.
+function refreshStaticText(){
+  const legend=document.getElementById('paletteLegend');
+  if(legend) legend.innerHTML=T('pg.legend',{asc:PA('Asc')});
+  PLANETS.forEach(p=>{
+    const arr=document.getElementById('cbarr-'+p);
+    if(arr) arr.title=T('pg.show_arrows_for',{planet:PN(p)});
+    const col=document.getElementById('cbcol-'+p);
+    if(col) col.title=T('pg.show_colors_for',{planet:PN(p)});
+    // "<planet> (on chart)" placeholders are written once, when the planet
+    // leaves the palette, so they need retranslating in place.
+    const ph=paletteSlots[p]?.querySelector('.palette-placeholder');
+    if(ph) ph.textContent=T('pg.on_chart',{planet:PN(p)});
+    // Same for the palette tokens themselves. updateAll() rebuilds the ones
+    // sitting on the chart (renderCell re-runs createToken), but a token still
+    // in its palette slot is only ever built once - at init, or when the
+    // planet comes back off the chart - so without this it keeps whichever
+    // language it was born in.
+    const tok=paletteSlots[p]?.querySelector('.planet-token');
+    if(tok){ tok.textContent=PA(p); tok.title=PN(p); }
+  });
+}
+
+I18N.onChange(()=>{
+  refreshStaticText();
+  updateAll();   // redraws tokens, house numbers, rays and all 8 dashboards
+});
+
 // ── INIT ──────────────────────────────────────────
+refreshStaticText();
 updateAll();
 window.addEventListener('resize',updateRays);
 
