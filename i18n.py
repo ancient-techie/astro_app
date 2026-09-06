@@ -499,6 +499,18 @@ _EN = {
     "pg.all": "All",
     "pg.legend": "Drag planets into chart, or tap one then tap a house.<br>Tap a placed planet to remove it.<br><br><span style=\"color:#d4af37\">{asc}</span> = house 1.",
 
+    # -- playground: compare mode -------------------------------------------
+    "pg.compare": "Compare Charts",
+    "pg.compare_exit": "Single Chart",
+    "pg.compare_hint": "Two independent charts - drag, drop and score each one on its own.",
+    "pg.chart_a": "Chart A",
+    "pg.chart_b": "Chart B",
+    "pg.copy_a_b": "Copy A \u2192 B",
+    "pg.copy_b_a": "Copy B \u2192 A",
+    "pg.swap_ab": "Swap A \u21c4 B",
+    "pg.sync_tabs": "Sync tabs",
+    "pg.sync_tabs_title": "Keep both charts on the same dashboard tab",
+
     # -- playground: dashboards ---------------------------------------------
     "pg.tab_good": "Goodness",
     "pg.tab_bad": "Badness",
@@ -759,6 +771,18 @@ _TA = {
     "pg.col_color_title": "ராசி நிறங்களைக் காட்டு",
     "pg.all": "அனைத்தும்",
     "pg.legend": "கிரகங்களை ஜாதகத்திற்கு இழுக்கவும், அல்லது ஒன்றைத் தொட்டபின் ஒரு வீட்டைத் தொடவும்.<br>வைத்த கிரகத்தைத் தொட்டால் நீக்கலாம்.<br><br><span style=\"color:#d4af37\">{asc}</span> = 1ஆம் வீடு.",
+
+    # -- playground: compare mode -------------------------------------------
+    "pg.compare": "ஜாதகங்களை ஒப்பிடு",
+    "pg.compare_exit": "ஒற்றை ஜாதகம்",
+    "pg.compare_hint": "இரண்டு தனித்த ஜாதகங்கள் - ஒவ்வொன்றையும் தனியே இழுத்து, வைத்து, அளவிடலாம்.",
+    "pg.chart_a": "ஜாதகம் A",
+    "pg.chart_b": "ஜாதகம் B",
+    "pg.copy_a_b": "A \u2192 B நகல்",
+    "pg.copy_b_a": "B \u2192 A நகல்",
+    "pg.swap_ab": "A \u21c4 B மாற்று",
+    "pg.sync_tabs": "தாவல்கள் ஒத்திசை",
+    "pg.sync_tabs_title": "இரண்டு ஜாதகங்களையும் ஒரே தாவலில் வை",
 
     # -- playground: dashboards ---------------------------------------------
     "pg.tab_good": "நன்மை",
