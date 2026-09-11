@@ -1363,12 +1363,13 @@ def build_dasha_table(subject, birth_dt):
     return rows
 
 
-def build_antardashas(lord, start_dt, years):
-    """The nine Antardasha (bhukti) sub-periods inside one Mahadasha.
+def build_sub_periods(lord, start_dt, years):
+    """The nine Vimshottari sub-periods inside any one period - Antardashas
+    inside a Mahadasha, Pratyantardashas inside an Antardasha, and so on.
 
     Same math the results page runs client-side (see computeSubPeriods in
-    PAGE_TEMPLATE): the sequence starts with the Mahadasha lord itself and
-    walks DASHA_ORDER, each sub-lord taking the share of the Mahadasha that
+    PAGE_TEMPLATE): the sequence starts with the parent period's own lord and
+    walks DASHA_ORDER, each sub-lord taking the share of the parent that
     matches its own share of the 120-year cycle.
     """
     from datetime import timedelta
@@ -1380,20 +1381,25 @@ def build_antardashas(lord, start_dt, years):
         sub_lord = DASHA_ORDER[(start_idx + step) % 9]
         sub_years = years * DASHA_YEARS[sub_lord] / 120.0
         end = cursor + timedelta(days=sub_years * DAYS_PER_YEAR)
-        periods.append({
-            "maha": lord,
-            "antar": sub_lord,
-            "start": cursor,
-            "end": end,
-            "years": sub_years,
-        })
+        periods.append({"lord": sub_lord, "start": cursor, "end": end, "years": sub_years})
         cursor = end
     return periods
+
+
+def build_antardashas(lord, start_dt, years):
+    """The nine Antardasha (bhukti) sub-periods inside one Mahadasha."""
+    return [
+        {"maha": lord, "antar": p["lord"], "start": p["start"], "end": p["end"], "years": p["years"]}
+        for p in build_sub_periods(lord, start_dt, years)
+    ]
 
 
 def build_dasha_bhukti_window(dasha_table, now, before=1, after=2):
     """Dasha-Bhukti periods around `now`: the one running today, `before`
     previous ones, and `after` upcoming ones - four rows in total by default.
+
+    The current row also carries the next level down: its nine Pratyantardasha
+    (Antaram) periods, under "antaram", with the one covering `now` flagged.
     """
     from datetime import datetime as _dt
 
@@ -1422,14 +1428,26 @@ def build_dasha_bhukti_window(dasha_table, now, before=1, after=2):
             role = "Upcoming"
         else:
             role = "Then"
-        window.append({
+        entry = {
             "role": role,
             "maha": p["maha"],
             "antar": p["antar"],
             "start": p["start"].strftime("%Y-%m-%d"),
             "end": p["end"].strftime("%Y-%m-%d"),
             "years": f"{p['years']:.2f}",
-        })
+        }
+        if i == current_idx:
+            entry["antaram"] = [
+                {
+                    "lord": sub["lord"],
+                    "start": sub["start"].strftime("%Y-%m-%d"),
+                    "end": sub["end"].strftime("%Y-%m-%d"),
+                    "years": f"{sub['years']:.3f}",
+                    "is_current": sub["start"] <= now <= sub["end"],
+                }
+                for sub in build_sub_periods(p["antar"], p["start"], p["years"])
+            ]
+        window.append(entry)
     return window
 
 
@@ -2197,10 +2215,11 @@ PAGE_TEMPLATE = """
         aspects, and lordship - or for Rahu/Ketu, the houses ruled by every
         planet connected to it), along with that period's date range. Tap
         an Antardasha row to see both the Mahadasha and Antardasha lords
-        together - each with its own sub-period dates.
+        together, or a Pratyantardasha row to add its lord as well - each
+        with its own sub-period dates.
       </small>
       <div id="housesInvolvedBox" class="houses-box">
-        <div class="placeholder-small" data-i18n="houses.placeholder">Tap a Mahadasha or Antardasha row above.</div>
+        <div class="placeholder-small" data-i18n="houses.placeholder">Tap a Mahadasha, Antardasha or Pratyantardasha row above.</div>
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
 
@@ -2267,8 +2286,9 @@ PAGE_TEMPLATE = """
             Rahu: 18, Jupiter: 16, Saturn: 19, Mercury: 17
           };
           const DAYS_PER_YEAR = 365.2425;
-          const MAX_LEVEL = 3; // 0=Mahadasha 1=Antardasha 2=Pratyantardasha 3=Sookshma Dasha
-          const HOUSES_BOX_MAX_LEVEL = 1; // box only reacts to Mahadasha (0) and Antardasha (1) clicks
+          const LEVEL_ROLES = ["Mahadasha", "Antardasha", "Pratyantardasha", "Sookshma Dasha"];
+          const MAX_LEVEL = LEVEL_ROLES.length - 1;
+          const HOUSES_BOX_MAX_LEVEL = 2; // box reacts to Mahadasha, Antardasha and Pratyantardasha clicks
 
           const houseDataEl = document.getElementById("dashaHouseData");
           let DASHA_HOUSE_DATA = {};
@@ -2359,6 +2379,15 @@ PAGE_TEMPLATE = """
           const tbody = document.querySelector("#dashaTable tbody");
           if (!tbody) return;
 
+          // Each row's lord plus every ancestor above it, outermost first -
+          // what the Houses Involved box lists when that row is tapped.
+          // Server-rendered Mahadasha rows have no stored chain; theirs is
+          // just the row itself.
+          function lordChain(row) {
+            if (row.dataset.chain) return JSON.parse(row.dataset.chain);
+            return [{ role: LEVEL_ROLES[0], label: row.dataset.lord, start: row.dataset.start, end: row.dataset.end }];
+          }
+
           function collapseRow(row) {
             const level = parseInt(row.dataset.level, 10);
             let next = row.nextElementSibling;
@@ -2373,6 +2402,7 @@ PAGE_TEMPLATE = """
           function expandRow(row) {
             const level = parseInt(row.dataset.level, 10);
             const periods = computeSubPeriods(row.dataset.lord, row.dataset.start, parseFloat(row.dataset.years));
+            const parentChain = lordChain(row);
             let anchor = row;
             periods.forEach((p) => {
               const tr = document.createElement("tr");
@@ -2383,11 +2413,9 @@ PAGE_TEMPLATE = """
               tr.dataset.start = p.start;
               tr.dataset.end = p.end;
               tr.dataset.years = p.years;
-              if (childLevel === 1) {
-                tr.dataset.parentLord = row.dataset.lord;
-                tr.dataset.parentStart = row.dataset.start;
-                tr.dataset.parentEnd = row.dataset.end;
-              }
+              tr.dataset.chain = JSON.stringify(parentChain.concat(
+                { role: LEVEL_ROLES[childLevel], label: p.lord, start: p.start, end: p.end }
+              ));
               const arrow = childLevel < MAX_LEVEL
                 ? '<span class="toggle-arrow">&#9656;</span>'
                 : '<span class="toggle-arrow"></span>';
@@ -2406,18 +2434,7 @@ PAGE_TEMPLATE = """
             if (!row) return;
             const level = parseInt(row.dataset.level, 10);
 
-            if (level <= HOUSES_BOX_MAX_LEVEL) {
-              if (level === 0) {
-                updateHousesBox([
-                  { role: "Mahadasha", label: row.dataset.lord, start: row.dataset.start, end: row.dataset.end },
-                ]);
-              } else if (level === 1) {
-                updateHousesBox([
-                  { role: "Mahadasha", label: row.dataset.parentLord, start: row.dataset.parentStart, end: row.dataset.parentEnd },
-                  { role: "Antardasha", label: row.dataset.lord, start: row.dataset.start, end: row.dataset.end },
-                ]);
-              }
-            }
+            if (level <= HOUSES_BOX_MAX_LEVEL) updateHousesBox(lordChain(row));
 
             if (level >= MAX_LEVEL) return;
             if (row.classList.contains("expanded")) {
@@ -2895,6 +2912,7 @@ def build_chart_context(form):
         row["is_current"] = row_start <= now <= row_end
 
     ascendant_abbr = subject.first_house["sign"]
+    dasha_house_map = build_dasha_house_map(subject, ascendant_abbr)
 
     return {
         "subject": subject,
@@ -2906,7 +2924,8 @@ def build_chart_context(form):
         "sign_conjunctions": build_sign_conjunctions(subject),
         "dasha_table": dasha_table,
         "bhukti_window": build_dasha_bhukti_window(dasha_table, now),
-        "dasha_house_json": json.dumps(build_dasha_house_map(subject, ascendant_abbr)),
+        "dasha_house_map": dasha_house_map,
+        "dasha_house_json": json.dumps(dasha_house_map),
         "playground_url": build_playground_url(subject),
     }
 

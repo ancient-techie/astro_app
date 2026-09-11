@@ -222,6 +222,20 @@ def _style_set(font, bold_font, shaping):
             spaceBefore=1,
             shaping=shaping,
         ),
+        # The houses each lord of a period activates, one line per lord under
+        # the period's dates.
+        "period_houses": ParagraphStyle(
+            "VPeriodHouses", parent=base["Normal"], fontName=font,
+            fontSize=8, leading=10.5, textColor=INK, leftIndent=12,
+            spaceBefore=1,
+            shaping=shaping,
+        ),
+        "subsection": ParagraphStyle(
+            "VSubsection", parent=base["Normal"], fontName=bold_font,
+            fontSize=10, leading=13, textColor=INK,
+            spaceBefore=12, spaceAfter=5,
+            shaping=shaping,
+        ),
         "note": ParagraphStyle(
             "VNote", parent=base["Normal"],
             fontName=font if font != "Helvetica" else "Helvetica-Oblique",
@@ -431,7 +445,62 @@ def _star_block(styles, star_table, lang):
     return table
 
 
-def _bhukti_lines(styles, bhukti_window, lang):
+def _house_clauses(info, lang):
+    """The houses one dasha lord activates, e.g. "Lord of 2nd, 7th =
+    Placement - 5th = Aspects - 11th".
+
+    Same wording as renderPlanetBlock on the results page, built from the
+    same app.build_dasha_house_map() entry, so the PDF and the Houses
+    Involved box never disagree.
+    """
+    if not info:
+        return i18n.t("houses.no_data", lang)
+
+    placement = i18n.ordinal(info["placement"], lang)
+
+    if info["type"] == "classical":
+        return " = ".join([
+            f"{i18n.t('phrase.lord_of', lang)} {i18n.ordinal_list(info['lordship'], lang)}",
+            f"{i18n.t('phrase.placement', lang)} - {placement}",
+            f"{i18n.t('phrase.aspects', lang)} - {i18n.ordinal_list(info['aspects'], lang)}",
+        ])
+
+    # Rahu/Ketu have no lordship or aspects of their own, so they are read
+    # through the planets connected to them: "2nd, 7th (Venus); 5th (Sun)".
+    def connections(role):
+        return "; ".join(
+            f"{i18n.ordinal_list(c['houses'], lang)} ({i18n.term('planet', c['planet'], lang)})"
+            for c in info["connections"] if role in c["roles"]
+        )
+
+    dispositor = next((c for c in info["connections"] if "dispositor" in c["roles"]), None)
+    if dispositor:
+        clauses = [
+            f"{i18n.t('phrase.dispositor', lang)} ({i18n.term('planet', dispositor['planet'], lang)})"
+            f" {i18n.t('phrase.of', lang)} {i18n.ordinal_list(dispositor['houses'], lang)}"
+        ]
+    else:
+        clauses = [i18n.t("phrase.dispositor_none", lang)]
+    clauses.append(
+        f"{i18n.t('phrase.placement', lang)} - {placement} {i18n.t('phrase.house', lang)}"
+        f" ({i18n.term('sign', info['sign'], lang)})"
+    )
+    if connections("conjunct"):
+        clauses.append(f"{i18n.t('phrase.conjunct', lang)} - {connections('conjunct')}")
+    clauses.append(
+        f"{i18n.t('phrase.aspected_by', lang)} - "
+        f"{connections('aspecting') or i18n.t('phrase.none', lang)}"
+    )
+    return " = ".join(clauses)
+
+
+def _houses_line(styles, label, house_map, lang):
+    """"Venus = Lord of 2nd, 7th = ..." as one indented paragraph."""
+    text = f"{i18n.term('planet', label, lang)} = {_house_clauses(house_map.get(label), lang)}"
+    return _para(styles, text, "period_houses")
+
+
+def _bhukti_lines(styles, bhukti_window, lang, house_map=None):
     """Previous / current / upcoming Dasha-Bhukti periods, as prose lines.
 
     A six-column grid of planet names and ISO dates reads like a spreadsheet
@@ -439,6 +508,7 @@ def _bhukti_lines(styles, bhukti_window, lang):
     instead - "Current - Venus Mahadasha - Sun Antardasha", its dates on a
     quieter line below - carries the same six fields but can be read straight
     through, which is what someone does with four periods rather than forty.
+    Under the dates, one line per lord gives the houses it activates.
 
     Returns bare Paragraphs, not KeepTogether groups: build_chart_pdf already
     wraps the whole section in one, and KeepTogether reports a sentinel height
@@ -465,6 +535,60 @@ def _bhukti_lines(styles, bhukti_window, lang):
         role = "period_current" if p["role"] == "Current" else "period"
         flowables.append(_para(styles, headline, role))
         flowables.append(_para(styles, dates, "period_meta"))
+        if house_map:
+            flowables.append(_houses_line(styles, p["maha"], house_map, lang))
+            flowables.append(_houses_line(styles, p["antar"], house_map, lang))
+    return flowables
+
+
+def _antaram_block(styles, period, lang, house_map=None):
+    """The next level down: the current Bhukti's nine Pratyantardasha
+    (Antaram) periods, each with the houses its lord activates.
+
+    Nine rows is where a table does read better than prose, so this one is
+    a grid; the row running today is outlined in gold. Returns bare
+    flowables for the caller to group - see _bhukti_lines on nesting.
+    """
+    level = i18n.term("dasha_level", "Pratyantardasha", lang)
+    heading = i18n.t(
+        "pdf.antaram_heading", lang, level=level,
+        maha=i18n.term("planet", period["maha"], lang),
+        maha_label=i18n.term("dasha_level", "Mahadasha", lang),
+        antar=i18n.term("planet", period["antar"], lang),
+        antar_label=i18n.term("dasha_level", "Antardasha", lang),
+    )
+
+    # The heading already names the level, so the first column is just
+    # "Lord" - "Pratyantardasha" is too long to fit it without wrapping.
+    header = [i18n.t(key, lang) for key in ("th.lord", "th.start", "th.end", "phrase.houses")]
+    rows = [[_para(styles, h, "cell_head") for h in header]]
+    current_row = None
+    for i, sub in enumerate(period["antaram"], start=1):
+        cell_role = "cell_strong" if sub["is_current"] else "cell"
+        if sub["is_current"]:
+            current_row = i
+        rows.append([
+            _para(styles, i18n.term("planet", sub["lord"], lang), cell_role),
+            _para(styles, sub["start"], cell_role),
+            _para(styles, sub["end"], cell_role),
+            _para(styles, _house_clauses((house_map or {}).get(sub["lord"]), lang)),
+        ])
+
+    widths = [w * CONTENT_WIDTH for w in (0.15, 0.14, 0.14, 0.57)]
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    style = _table_style()
+    if current_row is not None:
+        style.add("BOX", (0, current_row), (-1, current_row), 1.4, GOLD)
+    table.setStyle(style)
+
+    flowables = [_para(styles, heading, "subsection"), table]
+    if current_row is not None:
+        flowables.append(_para(
+            styles,
+            i18n.t("pdf.antaram_note", lang, level=level,
+                   date=datetime.now().strftime("%d %b %Y")),
+            "note",
+        ))
     return flowables
 
 
@@ -587,16 +711,26 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
     # part most people read after looking at the charts, and as prose lines it
     # is short enough to follow them on the same page.
     bhukti_window = ctx.get("bhukti_window") or []
+    house_map = ctx.get("dasha_house_map") or {}
     if bhukti_window:
         block = _section(styles, i18n.t("pdf.bhukti_heading", lang))
-        block += _bhukti_lines(styles, bhukti_window, lang)
+        block += _bhukti_lines(styles, bhukti_window, lang, house_map)
         block.append(_para(
             styles,
             i18n.t("pdf.bhukti_note", lang,
                    date=datetime.now().strftime("%d %b %Y")),
             "note",
         ))
+        if house_map:
+            block.append(_para(styles, i18n.t("pdf.houses_note", lang), "note"))
         story.append(KeepTogether(block))
+
+        # A separate group rather than part of the one above: together they
+        # can run past a page, and KeepTogether would then push both to a
+        # fresh page and leave a gap under the charts.
+        current = next((p for p in bhukti_window if p.get("antaram")), None)
+        if current:
+            story.append(KeepTogether(_antaram_block(styles, current, lang, house_map)))
 
     star_table = ctx.get("star_table") or []
     if star_table:

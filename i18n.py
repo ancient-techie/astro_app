@@ -423,8 +423,8 @@ _EN = {
 
     # -- houses involved -----------------------------------------------------
     "section.houses": "Houses Involved",
-    "houses.hint": "Tap a Mahadasha row to see the houses its lord activates (placement, aspects, and lordship – or for Rahu/Ketu, the houses ruled by every planet connected to it), along with that period's date range. Tap an Antardasha row to see both the Mahadasha and Antardasha lords together – each with its own sub-period dates.",
-    "houses.placeholder": "Tap a Mahadasha or Antardasha row above.",
+    "houses.hint": "Tap a Mahadasha row to see the houses its lord activates (placement, aspects, and lordship – or for Rahu/Ketu, the houses ruled by every planet connected to it), along with that period's date range. Tap an Antardasha row to see both the Mahadasha and Antardasha lords together, or a Pratyantardasha row to add its lord as well – each with its own sub-period dates.",
+    "houses.placeholder": "Tap a Mahadasha, Antardasha or Pratyantardasha row above.",
     "houses.no_data": "No house data available.",
     "phrase.lord_of": "Lord of",
     "phrase.placement": "Placement",
@@ -477,6 +477,10 @@ _EN = {
     "pdf.bhukti_dates": "{start} → {end} · {years} {years_unit}",
     "pdf.years_unit": "years",
     "pdf.bhukti_note": "The period marked in gold is the Mahadasha-Antardasha running on {date}, listed with the preceding period and the next two.",
+    # The next level down: the current Bhukti split into its nine Antarams.
+    "pdf.antaram_heading": "{level} periods within {maha} {maha_label} – {antar} {antar_label}",
+    "pdf.antaram_note": "The row in gold is the {level} running on {date}.",
+    "pdf.houses_note": "Houses are counted from the Rashi Ascendant. A graha activates the house it sits in, the houses it aspects and the houses it rules; Rahu and Ketu have no aspects or signs of their own, so they work through the planets connected to them.",
     "pdf.generated": "Generated {timestamp} \u00b7 positions from the Swiss Ephemeris via Kerykeion.",
     "pdf.coordinates": "Coordinates",
     "pdf.ayanamsa": "Ayanamsa",
@@ -696,8 +700,8 @@ _TA = {
 
     # -- houses involved -----------------------------------------------------
     "section.houses": "சம்பந்தப்பட்ட வீடுகள்",
-    "houses.hint": "மகா தசை வரிசையைத் தட்டினால் அந்த அதிபதி தூண்டும் வீடுகள் (இருப்பு, பார்வை, ஆட்சி – ராகு/கேதுவிற்கு அவற்றுடன் தொடர்புடைய கிரகங்கள் ஆளும் வீடுகள்) அந்தக் கால எல்லையுடன் காட்டப்படும். புக்தி வரிசையைத் தட்டினால் மகா தசை மற்றும் புக்தி அதிபதிகள் இரண்டும் சேர்ந்து காட்டப்படும்.",
-    "houses.placeholder": "மேலே உள்ள மகா தசை அல்லது புக்தி வரிசையைத் தட்டவும்.",
+    "houses.hint": "மகா தசை வரிசையைத் தட்டினால் அந்த அதிபதி தூண்டும் வீடுகள் (இருப்பு, பார்வை, ஆட்சி – ராகு/கேதுவிற்கு அவற்றுடன் தொடர்புடைய கிரகங்கள் ஆளும் வீடுகள்) அந்தக் கால எல்லையுடன் காட்டப்படும். புக்தி வரிசையைத் தட்டினால் மகா தசை மற்றும் புக்தி அதிபதிகள் இரண்டும் சேர்ந்து காட்டப்படும். அந்தர வரிசையைத் தட்டினால் அந்தர அதிபதியும் சேர்த்துக் காட்டப்படும்.",
+    "houses.placeholder": "மேலே உள்ள மகா தசை, புக்தி அல்லது அந்தர வரிசையைத் தட்டவும்.",
     "houses.no_data": "வீடு தகவல் இல்லை.",
     "phrase.lord_of": "ஆட்சி",
     "phrase.placement": "இருப்பு",
@@ -750,6 +754,9 @@ _TA = {
     "pdf.bhukti_dates": "{start} \u2192 {end} \u00b7 {years} {years_unit}",
     "pdf.years_unit": "\u0b86\u0ba3\u0bcd\u0b9f\u0bc1\u0b95\u0bb3\u0bcd",
     "pdf.bhukti_note": "{date} \u0b85\u0ba9\u0bcd\u0bb1\u0bc1 \u0ba8\u0b9f\u0bc8\u0baa\u0bc6\u0bb1\u0bc1\u0bae\u0bcd \u0bae\u0b95\u0bbe \u0ba4\u0b9a\u0bc8-\u0baa\u0bc1\u0b95\u0bcd\u0ba4\u0bbf \u0b95\u0bbe\u0bb2\u0bae\u0bcd \u0ba4\u0b99\u0bcd\u0b95 \u0ba8\u0bbf\u0bb1\u0ba4\u0bcd\u0ba4\u0bbf\u0bb2\u0bcd \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f\u0bc1\u0bb3\u0bcd\u0bb3\u0ba4\u0bc1; \u0b85\u0ba4\u0bb1\u0bcd\u0b95\u0bc1 \u0bae\u0bc1\u0ba9\u0bcd\u0ba9\u0bc8\u0baf \u0b95\u0bbe\u0bb2\u0bae\u0bc1\u0bae\u0bcd \u0b85\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4 \u0b87\u0bb0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f\u0bc1\u0bb3\u0bcd\u0bb3\u0ba9.",
+    "pdf.antaram_heading": "{maha} {maha_label} \u2013 {antar} {antar_label}: {level} \u0b95\u0bbe\u0bb2\u0b99\u0bcd\u0b95\u0bb3\u0bcd",
+    "pdf.antaram_note": "{date} \u0b85\u0ba9\u0bcd\u0bb1\u0bc1 \u0ba8\u0b9f\u0bc8\u0baa\u0bc6\u0bb1\u0bc1\u0bae\u0bcd {level} \u0ba4\u0b99\u0bcd\u0b95 \u0ba8\u0bbf\u0bb1\u0ba4\u0bcd\u0ba4\u0bbf\u0bb2\u0bcd \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f\u0bc1\u0bb3\u0bcd\u0bb3\u0ba4\u0bc1.",
+    "pdf.houses_note": "\u0bb5\u0bc0\u0b9f\u0bc1\u0b95\u0bb3\u0bcd \u0bb0\u0bbe\u0b9a\u0bbf \u0bb2\u0b95\u0bcd\u0ba9\u0ba4\u0bcd\u0ba4\u0bbf\u0bb2\u0bbf\u0bb0\u0bc1\u0ba8\u0bcd\u0ba4\u0bc1 \u0b8e\u0ba3\u0bcd\u0ba3\u0baa\u0bcd\u0baa\u0b9f\u0bc1\u0b95\u0bbf\u0ba9\u0bcd\u0bb1\u0ba9. \u0b92\u0bb5\u0bcd\u0bb5\u0bca\u0bb0\u0bc1 \u0b95\u0bbf\u0bb0\u0b95\u0bae\u0bc1\u0bae\u0bcd \u0ba4\u0bbe\u0ba9\u0bcd \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd \u0bb5\u0bc0\u0b9f\u0bc1, \u0baa\u0bbe\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd \u0bb5\u0bc0\u0b9f\u0bc1\u0b95\u0bb3\u0bcd, \u0b86\u0bb3\u0bc1\u0bae\u0bcd \u0bb5\u0bc0\u0b9f\u0bc1\u0b95\u0bb3\u0bcd \u0b86\u0b95\u0bbf\u0baf\u0bb5\u0bb1\u0bcd\u0bb1\u0bc8\u0ba4\u0bcd \u0ba4\u0bc2\u0ba3\u0bcd\u0b9f\u0bc1\u0b95\u0bbf\u0bb1\u0ba4\u0bc1; \u0bb0\u0bbe\u0b95\u0bc1, \u0b95\u0bc7\u0ba4\u0bc1\u0bb5\u0bc1\u0b95\u0bcd\u0b95\u0bc1 \u0b9a\u0bca\u0ba8\u0bcd\u0ba4 \u0baa\u0bbe\u0bb0\u0bcd\u0bb5\u0bc8\u0baf\u0bcb \u0bb0\u0bbe\u0b9a\u0bbf\u0baf\u0bcb \u0b87\u0bb2\u0bcd\u0bb2\u0bbe\u0ba4\u0ba4\u0bbe\u0bb2\u0bcd \u0b85\u0bb5\u0bb1\u0bcd\u0bb1\u0bc1\u0b9f\u0ba9\u0bcd \u0ba4\u0bca\u0b9f\u0bb0\u0bcd\u0baa\u0bc1\u0b9f\u0bc8\u0baf \u0b95\u0bbf\u0bb0\u0b95\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0bb5\u0bb4\u0bbf\u0baf\u0bbe\u0b95\u0b9a\u0bcd \u0b9a\u0bc6\u0baf\u0bb2\u0bcd\u0baa\u0b9f\u0bc1\u0b95\u0bbf\u0ba9\u0bcd\u0bb1\u0ba9.",
     "pdf.generated": "{timestamp} \u0b85\u0ba9\u0bcd\u0bb1\u0bc1 \u0b89\u0bb0\u0bc1\u0bb5\u0bbe\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f\u0ba4\u0bc1 \u00b7 Kerykeion \u0bb5\u0bb4\u0bbf Swiss Ephemeris \u0ba4\u0bb0\u0bb5\u0bc1.",
     "pdf.coordinates": "\u0b85\u0b9f\u0bcd\u0b9a\u0bae\u0bcd, \u0ba4\u0bc0\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0bae\u0bcd",
     "pdf.ayanamsa": "\u0b85\u0baf\u0ba9\u0bbe\u0bae\u0bcd\u0b9a\u0bae\u0bcd",
@@ -909,6 +916,19 @@ def term(kind, key, lang=DEFAULT_LANGUAGE):
 def planet_abbr(label, lang=DEFAULT_LANGUAGE):
     """Chart-box abbreviation for a graha, e.g. "Su" / "சூ"."""
     return term("planet_abbr", label, lang)
+
+
+def ordinal(n, lang=DEFAULT_LANGUAGE):
+    """House ordinal - "3rd" in English, "3ஆம்" in Tamil (twin of I18N.ordinal)."""
+    if lang == "ta":
+        return f"{n}ஆம்"
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def ordinal_list(numbers, lang=DEFAULT_LANGUAGE):
+    """"3rd, 7th" - twin of I18N.ordinalList."""
+    return ", ".join(ordinal(n, lang) for n in numbers)
 
 
 # Suffix appended to a retrograde planet's chart glyph - "(R)" in English,
