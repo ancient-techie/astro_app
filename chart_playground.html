@@ -175,6 +175,19 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 .dash-tab.tab-sigcol.active-tab{color:#aaffdd;border-top:2px solid #aaffdd}
 .dashboard h2.sigcol-title{color:#aaffdd}
 .dash-section h3.sigcol-h3{color:rgba(170,255,221,.85)}
+/* CONNECTIONS TAB */
+.dash-tab.tab-conn.active-tab{color:#ffaa66;border-top:2px solid #ffaa66}
+.dashboard h2.conn-title{color:#ffaa66}
+.dash-section h3.conn-h3{color:rgba(255,170,102,.85)}
+.conn-houses{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.conn-house{font-size:10px;padding:3px 9px;border-radius:12px;border:1px solid rgba(255,170,102,.3);background:rgba(255,170,102,.06);color:rgba(240,225,200,.85)}
+.conn-house b{font-family:'Cinzel',serif;color:#ffcc88}
+.conn-links{margin:0;padding-left:14px;font-size:10px;line-height:1.5}
+.conn-yes{color:#44ff88;font-weight:700;white-space:nowrap}
+.conn-no{color:rgba(255,120,100,.75);white-space:nowrap}
+.conn-verdict{margin-top:10px;padding:7px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.04);border-left:3px solid rgba(255,170,102,.6);color:rgba(240,230,210,.9)}
+.conn-verdict.on{border-left-color:#44dd88}
+.conn-note{margin-top:8px;font-size:9px;color:rgba(200,195,175,.45)}
 .sign-color-card{
   background:rgba(255,255,255,.04);border:1px solid rgba(170,255,221,.1);
   border-radius:10px;padding:12px 14px;
@@ -464,6 +477,7 @@ body.compare .dash-sections{grid-template-columns:repeat(auto-fit,minmax(170px,1
         <div class="dash-tab tab-dig"  data-tab="dig">&#9672; <span data-i18n="pg.tab_dig">Dig+Nish Bala</span></div>
         <div class="dash-tab tab-total" data-tab="total">&#8859; <span data-i18n="pg.tab_total">Total Strength</span></div>
         <div class="dash-tab tab-sigcol" data-tab="sigcol">&#127912; <span data-i18n="pg.tab_sigcol">Sign Colors</span></div>
+        <div class="dash-tab tab-conn" data-tab="conn">&#128279; <span data-i18n="pg.tab_conn">Connections</span></div>
       </div>
       <div class="dashboard">
         <div class="dash-panel active-panel" data-panel="good">
@@ -497,6 +511,10 @@ body.compare .dash-sections{grid-template-columns:repeat(auto-fit,minmax(170px,1
         <div class="dash-panel" data-panel="sigcol">
           <h2 class="sigcol-title">&#127912; <span data-i18n="pg.panel_sigcol">Sign Color Breakdown</span> &#127912;</h2>
           <div data-sections="sigcol"><div class="no-data" data-i18n="pg.no_data_colors">Place planets to see sign colors.</div></div>
+        </div>
+        <div class="dash-panel" data-panel="conn">
+          <h2 class="conn-title">&#128279; <span data-i18n="pg.panel_conn">Connection Checks</span> &#128279;</h2>
+          <div class="dash-sections" data-sections="conn"><div class="no-data" style="grid-column:1/-1" data-i18n="pg.no_data">Place planets to see analysis.</div></div>
         </div>
       </div>
     </div>
@@ -771,6 +789,25 @@ function moonColor(brightness){
 const MOON_KENDRA_OFFSETS=[1,4,7,10];
 const MOON_KENDRA_BENEFICIARIES=['Mer','Ven','Sun','Jup'];
 const MOON_KENDRA_POINTS=30;
+
+// "🌒 Waxing (67%)" and friends. `dist` is the Moon's sign count from the Sun,
+// or null while the Sun is off the chart.
+function moonPhaseLabel(bright,dist){
+  const pct=Math.round(bright*100);
+  return bright>=.99?`🌕 ${T('pg.full_moon')}`:bright<=.01?`🌑 ${T('pg.new_moon_short')}`
+    :dist<=7?`🌒 ${T('pg.waxing',{pct})}`:`🌖 ${T('pg.waning',{pct})}`;
+}
+
+// ── CONNECTION CHECKS ─────────────────────────────
+// 2-9-11: the three wealth houses, checked pair by pair through their lords.
+const DHANA_HOUSES=[2,9,11];
+// Subathuvam on the 8th/12th comes from Jupiter, Venus, or a Moon that is full
+// or waxing past the 7th phase (more than half lit). The playground only knows
+// signs, so that Moon is the 5th or 6th sign from the Sun (waxing) or the 7th
+// (full) - a waning Moon never counts.
+const SUBHA_HOUSES=[8,12];
+const SUBHA_GIVERS=['Jup','Ven'];
+const SUBHA_MOON_DISTS=[5,6,7];
 
 // ── ASPECT RULES ─────────────────────────────────
 function getAspectOffsets(planet,signIdx,sunSIdx){
@@ -1586,7 +1623,7 @@ function createChart(root,opts){
     const bright=moonSIdx!==-1?moonBrightness(moonSIdx,sunSIdx):1.0;
 
     const noData=`<div class="no-data" style="grid-column:1/-1">${T('pg.no_data')}</div>`;
-    if(!anyPlaced){['good','bad','well','plan','stana','dig','total'].forEach(t=>sec(t).innerHTML=noData);updateSignColorsDashboard();return;}
+    if(!anyPlaced){['good','bad','well','plan','stana','dig','total','conn'].forEach(t=>sec(t).innerHTML=noData);updateSignColorsDashboard();return;}
 
     const {goodScores,badScores}=computeSignScores();
     const goodCat=aggregateCat(goodScores);
@@ -1596,8 +1633,7 @@ function createChart(root,opts){
     const goodRanked=Object.entries(goodScores).map(([si,d])=>({sIdx:parseInt(si),...d})).filter(d=>d.score>0).sort((a,b)=>b.score-a.score);
     const moonPct=Math.round(bright*100);
     const dist=moonSIdx!==-1&&sunSIdx!==-1?((moonSIdx-sunSIdx+12)%12)+1:null;
-    const phase=bright>=.99?`🌕 ${T('pg.full_moon')}`:bright<=.01?`🌑 ${T('pg.new_moon_short')}`
-      :dist<=7?`🌒 ${T('pg.waxing',{pct:moonPct})}`:`🌖 ${T('pg.waning',{pct:moonPct})}`;
+    const phase=moonPhaseLabel(bright,dist);
     const mc=moonColor(bright);
     const moonSection=`<div class="dash-section"><h3 class="good-h3">☽ ${T('pg.moon_phase')}</h3>
       <div style="display:flex;flex-direction:column;gap:6px">
@@ -1862,6 +1898,134 @@ function createChart(root,opts){
 
     // ── SIGN COLORS TAB ──
     updateSignColorsDashboard();
+
+    // ── CONNECTIONS TAB ──
+    sec('conn').innerHTML=buildConnectionsTab();
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  CONNECTION CHECKS
+  // ═══════════════════════════════════════════════════
+  const ORD=(n)=>I18N.ordinal(n);
+  // Sign index of house n, counted from the Ascendant.
+  function houseSign(ascSIdx,n){return (ascSIdx+n-1)%12;}
+  // Signs a planet aspects from where it sits, each with its aspect number
+  // (5th, 7th...). Its own sign is presence, not aspect, so it is left out.
+  function aspectsFrom(planet,sIdx,sunSIdx){
+    return getAspectOffsets(planet,sIdx,sunSIdx).filter(off=>off!==1).map(off=>({off,sIdx:aspectSign(sIdx,off)}));
+  }
+
+  // 2-9-11: for each pair of the three houses, every way their lords tie them
+  // together - sign exchange, one lord sitting in or aspecting the other's
+  // house, one lord aspecting the other, conjunction, or one planet ruling both.
+  function compute2911(ascSIdx,sunSIdx){
+    const info={};
+    DHANA_HOUSES.forEach(h=>{
+      const sIdx=houseSign(ascSIdx,h);
+      const lord=SIGN_LORD[SIGNS[sIdx]];
+      info[h]={h,sIdx,lord,lordSIdx:findPlanetSignIdx(lord)};
+    });
+    const lordOf=(X)=>({planet:PN(X.lord),a:ORD(X.h)});
+    const pairs=[[2,9],[2,11],[9,11]].map(([a,b])=>{
+      const A=info[a],B=info[b],links=[];
+      if(A.lord===B.lord){
+        links.push(T('pg.link_same_lord',{planet:PN(A.lord),a:ORD(a),b:ORD(b)}));
+        return {a,b,links};
+      }
+      const exchange=A.lordSIdx===B.sIdx&&B.lordSIdx===A.sIdx;
+      if(exchange) links.push(T('pg.link_exchange',{p1:PN(A.lord),a:ORD(a),p2:PN(B.lord),b:ORD(b)}));
+      [[A,B],[B,A]].forEach(([X,Y])=>{
+        if(X.lordSIdx===-1) return;
+        // An exchange already says each lord sits in the other's house.
+        if(!exchange&&X.lordSIdx===Y.sIdx) links.push(T('pg.link_in',{...lordOf(X),b:ORD(Y.h)}));
+        const asp=aspectsFrom(X.lord,X.lordSIdx,sunSIdx);
+        const onHouse=asp.find(s=>s.sIdx===Y.sIdx);
+        if(onHouse) links.push(T('pg.link_aspect_house',{...lordOf(X),b:ORD(Y.h),n:ORD(onHouse.off)}));
+        // Y's lord sitting at home is already covered by the aspect on Y's house.
+        const onLord=Y.lordSIdx!==-1&&Y.lordSIdx!==Y.sIdx&&asp.find(s=>s.sIdx===Y.lordSIdx);
+        if(onLord) links.push(T('pg.link_aspect_lord',{...lordOf(X),other:PN(Y.lord),b:ORD(Y.h),n:ORD(onLord.off)}));
+      });
+      if(A.lordSIdx!==-1&&A.lordSIdx===B.lordSIdx)
+        links.push(T('pg.link_conj',{p1:PN(A.lord),a:ORD(a),p2:PN(B.lord),b:ORD(b),sign:SN(SIGNS[A.lordSIdx])}));
+      return {a,b,links};
+    });
+    const offChart=[...new Set(DHANA_HOUSES.filter(h=>info[h].lordSIdx===-1).map(h=>info[h].lord))];
+    return {info,pairs,offChart};
+  }
+
+  // Subathuvam on the 8th and 12th: Jupiter, Venus, or a qualifying Moon (see
+  // SUBHA_MOON_DISTS) sitting in the house or aspecting it.
+  function computeSubha(ascSIdx,sunSIdx){
+    const moonSIdx=findPlanetSignIdx('Mon');
+    const moon={placed:moonSIdx!==-1,counts:false,phase:''};
+    if(moon.placed&&sunSIdx!==-1){
+      const dist=((moonSIdx-sunSIdx+12)%12)+1;
+      moon.counts=SUBHA_MOON_DISTS.includes(dist);
+      moon.phase=moonPhaseLabel(moonBrightness(moonSIdx,sunSIdx),dist);
+    }
+    const givers=moon.counts?[...SUBHA_GIVERS,'Mon']:SUBHA_GIVERS;
+    const houses=SUBHA_HOUSES.map(h=>{
+      const sIdx=houseSign(ascSIdx,h),from=[];
+      givers.forEach(p=>{
+        const pS=findPlanetSignIdx(p);if(pS===-1) return;
+        if(pS===sIdx) from.push(T('pg.subha_in',{planet:PN(p)}));
+        const asp=aspectsFrom(p,pS,sunSIdx).find(s=>s.sIdx===sIdx);
+        if(asp) from.push(T('pg.subha_aspect',{planet:PN(p),n:ORD(asp.off)}));
+      });
+      return {h,sIdx,from};
+    });
+    return {houses,moon,sunPlaced:sunSIdx!==-1};
+  }
+
+  function buildConnectionsTab(){
+    const ascSIdx=findPlanetSignIdx('Asc');
+    if(ascSIdx===-1) return `<div class="no-data" style="grid-column:1/-1">${T('pg.conn_need_asc')}</div>`;
+    const sunSIdx=findPlanetSignIdx('Sun');
+    const th=(key)=>`<th style="color:rgba(255,170,102,.7)">${T(key)}</th>`;
+    const list=(items)=>items.length?`<ul class="conn-links">${items.map(x=>`<li>${x}</li>`).join('')}</ul>`:'—';
+    const houseCell=(text)=>`<td style="white-space:nowrap;color:#ffcc88;font-family:'Cinzel',serif">${text}</td>`;
+
+    // ── 2-9-11 ──
+    const d=compute2911(ascSIdx,sunSIdx);
+    const chips=DHANA_HOUSES.map(h=>{
+      const x=d.info[h];
+      return `<span class="conn-house"><b>${ORD(h)}</b> ${SN(SIGNS[x.sIdx])} · ${T('pg.conn_lord')} ${PN(x.lord)}</span>`;
+    }).join('');
+    const linked=d.pairs.filter(p=>p.links.length);
+    // Two linked pairs already join all three houses; the third pair only
+    // makes the connection complete.
+    const verdict=linked.length===3?T('pg.conn_2911_full')
+      :linked.length===2?T('pg.conn_2911_chain')
+      :linked.length===1?T('pg.conn_2911_partial',{a:ORD(linked[0].a),b:ORD(linked[0].b)})
+      :T('pg.conn_2911_none');
+    const pairRows=d.pairs.map(p=>`<tr>${houseCell(`${p.a} ↔ ${p.b}`)}<td>${list(p.links)}</td>
+      <td>${p.links.length?`<span class="conn-yes">✓ ${T('pg.conn_yes')}</span>`:`<span class="conn-no">✗ ${T('pg.conn_no')}</span>`}</td></tr>`).join('');
+    const dhana=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">🔗 ${T('pg.conn_2911')}</h3>
+      <div class="conn-houses">${chips}</div>
+      <table class="signs-table"><tr>${th('pg.conn_pair')}${th('pg.conn_links')}${th('pg.conn_status')}</tr>${pairRows}</table>
+      <div class="conn-verdict${linked.length>=2?' on':''}">${verdict}</div>
+      ${d.offChart.length?`<div class="conn-note">${T('pg.conn_off_chart',{planets:d.offChart.map(PN).join(', ')})}</div>`:''}
+      <div class="conn-note">${T('pg.conn_2911_note')}</div></div>`;
+
+    // ── SUBATHUVAM IN 8th / 12th ──
+    const s=computeSubha(ascSIdx,sunSIdx);
+    const blessed=s.houses.filter(x=>x.from.length);
+    const subhaVerdict=blessed.length===2?T('pg.subha_both')
+      :blessed.length===1?T('pg.subha_only',{n:ORD(blessed[0].h)})
+      :T('pg.subha_neither');
+    const moonLine=!s.moon.placed?''
+      :!s.sunPlaced?T('pg.subha_moon_need_sun')
+      :s.moon.counts?T('pg.subha_moon_yes',{phase:s.moon.phase})
+      :T('pg.subha_moon_no',{phase:s.moon.phase});
+    const houseRows=s.houses.map(x=>`<tr>${houseCell(ORD(x.h))}<td>${SN(SIGNS[x.sIdx])}</td><td>${list(x.from)}</td>
+      <td>${x.from.length?`<span class="conn-yes">✓ ${T('pg.subha_yes')}</span>`:`<span class="conn-no">✗ ${T('pg.subha_none')}</span>`}</td></tr>`).join('');
+    const subha=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">✦ ${T('pg.conn_subha')}</h3>
+      <table class="signs-table"><tr>${th('pg.conn_house')}${th('pg.sign')}${th('pg.subha_from')}${th('pg.conn_status')}</tr>${houseRows}</table>
+      <div class="conn-verdict${blessed.length?' on':''}">${subhaVerdict}</div>
+      ${moonLine?`<div class="conn-note">☽ ${moonLine}</div>`:''}
+      <div class="conn-note">${T('pg.conn_subha_note')}</div></div>`;
+
+    return dhana+subha;
   }
 
 

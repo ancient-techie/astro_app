@@ -202,7 +202,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v5";
+const CACHE_NAME = "vedic-chart-v6";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
