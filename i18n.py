@@ -428,7 +428,7 @@ _EN = {
     "houses.no_data": "No house data available.",
     # 3-7-11 connection box (marriage timing) - see app.build_marriage_links.
     "section.marriage": "3-7-11 Connection (Marriage)",
-    "marriage.hint": "For marriage timing, the Dasha, Bhukti and Antaram lords should each connect to the 3rd, 7th or 11th house – by sitting in it, aspecting it, ruling it, or exchanging signs with its lord (Rahu/Ketu through the planets tied to them). Shows the period running today; tap a Mahadasha, Antardasha or Pratyantardasha row to check another. Below it, two more checks: a Venus Dasha or Bhukti whose other lords link to 3-7-11, and a Dasha or Bhukti of the 2nd lord.",
+    "marriage.hint": "For marriage timing, the Dasha, Bhukti and Antaram lords should each connect to the 3rd, 7th or 11th house – by sitting in it, aspecting it, ruling it, exchanging signs with its lord, or sitting with its lord (Rahu/Ketu through the planets tied to them). Shows the period running today; tap a Mahadasha, Antardasha or Pratyantardasha row to check another. Below it, two more checks: a Venus Dasha or Bhukti whose other lords link to 3-7-11, and a Dasha or Bhukti of the 2nd lord.",
     "marriage.showing_current": "Period running today",
     "marriage.showing_selected": "Period you tapped",
     "marriage.no_current": "No period covers today's date.",
@@ -811,7 +811,7 @@ _TA = {
     "houses.placeholder": "மேலே உள்ள மகா தசை, புக்தி அல்லது அந்தர வரிசையைத் தட்டவும்.",
     "houses.no_data": "வீடு தகவல் இல்லை.",
     "section.marriage": "3-7-11 தொடர்பு (திருமணம்)",
-    "marriage.hint": "திருமண காலத்தைக் கணிக்க, தசை, புக்தி, அந்தர அதிபதிகள் ஒவ்வொருவரும் 3, 7 அல்லது 11ஆம் வீட்டுடன் தொடர்பு கொள்ள வேண்டும் – அந்த வீட்டில் இருத்தல், அதைப் பார்த்தல், அதை ஆளுதல், அல்லது அதன் அதிபதியுடன் பரிவர்த்தனை (ராகு/கேது அவற்றுடன் தொடர்புடைய கிரகங்கள் வழியாக). இன்று நடைபெறும் காலம் காட்டப்படும்; வேறு காலத்தைச் சரிபார்க்க மகா தசை, புக்தி அல்லது அந்தர வரிசையைத் தட்டவும். அதன் கீழே மேலும் இரண்டு சோதனைகள்: மற்ற அதிபதிகள் 3-7-11 உடன் தொடர்புடைய சுக்கிர தசை அல்லது புக்தி, மற்றும் 2ஆம் அதிபதியின் தசை அல்லது புக்தி.",
+    "marriage.hint": "திருமண காலத்தைக் கணிக்க, தசை, புக்தி, அந்தர அதிபதிகள் ஒவ்வொருவரும் 3, 7 அல்லது 11ஆம் வீட்டுடன் தொடர்பு கொள்ள வேண்டும் – அந்த வீட்டில் இருத்தல், அதைப் பார்த்தல், அதை ஆளுதல், அதன் அதிபதியுடன் பரிவர்த்தனை, அல்லது அதன் அதிபதியுடன் சேர்க்கை (ராகு/கேது அவற்றுடன் தொடர்புடைய கிரகங்கள் வழியாக). இன்று நடைபெறும் காலம் காட்டப்படும்; வேறு காலத்தைச் சரிபார்க்க மகா தசை, புக்தி அல்லது அந்தர வரிசையைத் தட்டவும். அதன் கீழே மேலும் இரண்டு சோதனைகள்: மற்ற அதிபதிகள் 3-7-11 உடன் தொடர்புடைய சுக்கிர தசை அல்லது புக்தி, மற்றும் 2ஆம் அதிபதியின் தசை அல்லது புக்தி.",
     "marriage.showing_current": "இன்று நடைபெறும் காலம்",
     "marriage.showing_selected": "நீங்கள் தட்டிய காலம்",
     "marriage.no_current": "இன்றைய தேதிக்கு எந்தக் காலமும் இல்லை.",

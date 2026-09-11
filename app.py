@@ -202,7 +202,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v9";
+const CACHE_NAME = "vedic-chart-v10";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -1079,10 +1079,11 @@ def build_dasha_house_map(subject, ascendant_abbr):
 # ---------------------------------------------------------------------------
 # The 3rd, 7th and 11th from the Ascendant are the houses read for marriage.
 # A period supports marriage when its Dasha, Bhukti and Antaram lords each
-# connect to one of them: by sitting in it, aspecting it, ruling it, or
-# exchanging signs with its lord. Rahu/Ketu have no aspects or signs of their
-# own, so they connect through the planets tied to them - dispositor,
-# conjunction, aspect - the same links build_dasha_house_map lists for them.
+# connect to one of them: by sitting in it, aspecting it, ruling it,
+# exchanging signs with its lord, or sitting in one sign with its lord.
+# Rahu/Ketu have no aspects or signs of their own, so they connect through
+# the planets tied to them - dispositor, conjunction, aspect - the same links
+# build_dasha_house_map lists for them.
 MARRIAGE_HOUSES = (3, 7, 11)
 
 
@@ -1090,8 +1091,8 @@ def build_marriage_links(subject, house_map):
     """Every way each of the nine dasha lords touches the 3rd, 7th or 11th.
 
     Returns {lord label: [{"house": 7, "how": "placement", "via": None}, ...]}
-    - `how` is placement / aspect / lordship / exchange for the classical
-    grahas, and dispositor / conjunct / aspecting for Rahu/Ketu, with `via`
+    - `how` is placement / aspect / lordship / exchange / conjunct for the
+    classical grahas, and dispositor / conjunct / aspecting for Rahu/Ketu, with `via`
     naming the planet the link runs through. An empty list means the lord
     has no 3-7-11 connection. `house_map` is build_dasha_house_map()'s result.
     """
@@ -1119,6 +1120,11 @@ def build_marriage_links(subject, house_map):
             if partner and partner != label and signs[partner] in RULERSHIP[label]:
                 links += [link(h, "exchange", partner)
                           for h in house_map[partner]["lordship"] if h in targets]
+            # Conjunction: sharing a sign with the lord of the 3rd, 7th or 11th.
+            for other in CLASSICAL_LABELS:
+                if other != label and signs[other] == signs[label]:
+                    links += [link(h, "conjunct", other)
+                              for h in house_map[other]["lordship"] if h in targets]
         else:
             for conn in info["connections"]:
                 for role in conn["roles"]:
@@ -2339,8 +2345,8 @@ PAGE_TEMPLATE = """
       <small class="hint" data-i18n="marriage.hint">
         For marriage timing, the Dasha, Bhukti and Antaram lords should each
         connect to the 3rd, 7th or 11th house - by sitting in it, aspecting it,
-        ruling it, or exchanging signs with its lord (Rahu/Ketu through the
-        planets tied to them). Shows the period running today; tap a
+        ruling it, exchanging signs with its lord, or sitting with its lord
+        (Rahu/Ketu through the planets tied to them). Shows the period running today; tap a
         Mahadasha, Antardasha or Pratyantardasha row to check another.
         Below it, two more checks: a Venus Dasha or Bhukti whose other lords
         link to 3-7-11, and a Dasha or Bhukti of the 2nd lord.
