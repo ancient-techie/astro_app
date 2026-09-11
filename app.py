@@ -202,7 +202,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v8";
+const CACHE_NAME = "vedic-chart-v9";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -2099,6 +2099,30 @@ PAGE_TEMPLATE = """
   .m-upcoming { width: 100%; border-collapse: collapse; font-size: 12px; }
   .m-upcoming td { padding: 5px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
   .m-upcoming tr.now td { background: var(--primary-grad-soft); font-weight: 600; }
+  .m-tag {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid var(--primary-2);
+    font-size: 11px;
+  }
+  .m-check {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border-left: 3px solid var(--muted);
+  }
+  .m-check.yes { border-left-color: #3fbf7f; }
+  .m-check.open { border-left-style: dashed; }
+  .m-mark { font-weight: 700; min-width: 14px; }
+  .m-check.yes .m-mark { color: #3fbf7f; }
+  .m-check.no .m-mark, .m-check.open .m-mark { color: var(--muted); }
+  .m-check-title { font-weight: 700; }
 
   .conj-tier {
     display: inline-block;
@@ -2318,6 +2342,8 @@ PAGE_TEMPLATE = """
         ruling it, or exchanging signs with its lord (Rahu/Ketu through the
         planets tied to them). Shows the period running today; tap a
         Mahadasha, Antardasha or Pratyantardasha row to check another.
+        Below it, two more checks: a Venus Dasha or Bhukti whose other lords
+        link to 3-7-11, and a Dasha or Bhukti of the 2nd lord.
       </small>
       <div id="marriageBox" class="houses-box"></div>
       <script id="marriageData" type="application/json">{{ marriage_json | safe }}</script>
@@ -2515,18 +2541,45 @@ PAGE_TEMPLATE = """
             return chain;
           }
 
-          // The next Antaram periods (from today) whose Dasha, Bhukti and
-          // Antaram lords all connect - a branch is skipped as soon as one
-          // level's lord doesn't, since nothing under it can qualify.
+          // The 2nd lord (kudumba sthana) - the classical graha whose lordship
+          // includes the 2nd house.
+          const SECOND_LORD = Object.keys(DASHA_HOUSE_DATA).find((label) =>
+            DASHA_HOUSE_DATA[label].type === "classical" && DASHA_HOUSE_DATA[label].lordship.includes(2)) || null;
+          const SECOND_LORD_LIMIT = 4;
+
+          // The three marriage checks for a chain of lords, outermost first:
+          //   r1 3-7-11   - every lord links to the 3rd, 7th or 11th;
+          //   r2 Venus    - Venus runs the Dasha or Bhukti (the Antaram alone
+          //                 doesn't count) and every *other* lord links to
+          //                 3-7-11 - Venus stands in for its own slot;
+          //   r3 2nd lord - the 2nd lord runs the Dasha or Bhukti.
+          // Each is "yes", "no", or "open" when a shorter chain (a Mahadasha
+          // or Antardasha tap) can't decide it yet.
+          function marriageChecks(lords) {
+            const full = lords.length === 3;
+            const r1 = lords.some((l) => !connects(l)) ? "no" : full ? "yes" : "open";
+            const venusSlots = [0, 1].filter((i) => lords[i] === "Venus");
+            const others = lords.filter((_, i) => !venusSlots.includes(i));
+            const r2 = !venusSlots.length ? (lords.length >= 2 ? "no" : "open")
+              : others.some((l) => !connects(l)) ? "no" : full ? "yes" : "open";
+            const r3 = lords.slice(0, 2).includes(SECOND_LORD) ? "yes" : lords.length >= 2 ? "no" : "open";
+            return { r1, r2, r3, venusSlots, others };
+          }
+
+          // The next Antaram periods (from today) that pass the 3-7-11 or the
+          // Venus check, each tagged with the checks it passes.
           function upcomingMatches(today, limit) {
             const out = [];
             for (const maha of tbody.querySelectorAll("tr.dasha-row.level-0")) {
-              if (maha.dataset.end < today || !connects(maha.dataset.lord)) continue;
+              if (maha.dataset.end < today) continue;
               for (const b of computeSubPeriods(maha.dataset.lord, maha.dataset.start, parseFloat(maha.dataset.years))) {
-                if (b.end < today || !connects(b.lord)) continue;
+                if (b.end < today) continue;
                 for (const a of computeSubPeriods(b.lord, b.start, b.years)) {
-                  if (a.end < today || !connects(a.lord)) continue;
-                  out.push({ lords: [maha.dataset.lord, b.lord, a.lord], start: a.start, end: a.end });
+                  if (a.end < today) continue;
+                  const lords = [maha.dataset.lord, b.lord, a.lord];
+                  const c = marriageChecks(lords);
+                  if (c.r1 !== "yes" && c.r2 !== "yes") continue;
+                  out.push({ lords, start: a.start, end: a.end, r1: c.r1 === "yes", r2: c.r2 === "yes" });
                   if (out.length >= limit) return out;
                 }
               }
@@ -2534,17 +2587,83 @@ PAGE_TEMPLATE = """
             return out;
           }
 
+          // The next Dasha or Bhukti the 2nd lord runs. The check is decided
+          // at those two levels, so a whole 2nd-lord Mahadasha is one window
+          // rather than dozens of Antaram rows.
+          function upcomingSecondLord(today, limit) {
+            const out = [];
+            if (!SECOND_LORD) return out;
+            for (const maha of tbody.querySelectorAll("tr.dasha-row.level-0")) {
+              if (maha.dataset.end < today) continue;
+              if (maha.dataset.lord === SECOND_LORD) {
+                out.push({ lords: [SECOND_LORD], role: LEVEL_ROLES[0], start: maha.dataset.start, end: maha.dataset.end });
+              } else {
+                const b = computeSubPeriods(maha.dataset.lord, maha.dataset.start, parseFloat(maha.dataset.years))
+                  .find((p) => p.lord === SECOND_LORD && p.end >= today);
+                if (b) out.push({ lords: [maha.dataset.lord, SECOND_LORD], role: LEVEL_ROLES[1], start: b.start, end: b.end });
+              }
+              if (out.length >= limit) break;
+            }
+            return out;
+          }
+
           function upcomingHtml(today) {
+            const tag = (key) => `<span class="m-tag">${I18N.t(key)}</span>`;
+            const now = (r) => r.start <= today ? ` (${I18N.t("marriage.now")})` : "";
             const rows = upcomingMatches(today, UPCOMING_LIMIT);
             const body = rows.length
               ? `<div class="m-upcoming-wrap"><table class="m-upcoming">${rows.map((r) => `
                   <tr class="${r.start <= today ? "now" : ""}">
-                    <td>${r.lords.map(planet).join(" &ndash; ")}${r.start <= today ? ` (${I18N.t("marriage.now")})` : ""}</td>
+                    <td>${r.lords.map(planet).join(" &ndash; ")}${now(r)}</td>
                     <td>${r.start} &rarr; ${r.end}</td>
-                    <td>${housesList(housesReached(r.lords))}</td>
+                    <td>${r.r1 ? tag("marriage.tag_3711") : ""}${r.r2 ? tag("marriage.tag_venus") : ""}</td>
                   </tr>`).join("")}</table></div>`
               : `<div class="muted-line">${I18N.t("marriage.upcoming_none")}</div>`;
-            return `<div class="m-upcoming-title">${I18N.t("marriage.upcoming")}</div>${body}`;
+            const second = upcomingSecondLord(today, SECOND_LORD_LIMIT);
+            const secondBody = second.length
+              ? `<div class="m-upcoming-wrap"><table class="m-upcoming">${second.map((r) => `
+                  <tr class="${r.start <= today ? "now" : ""}">
+                    <td>${r.lords.map(planet).join(" &ndash; ")} ${I18N.term("dasha_level", r.role)}${now(r)}</td>
+                    <td>${r.start} &rarr; ${r.end}</td>
+                  </tr>`).join("")}</table></div>`
+              : `<div class="muted-line">${I18N.t("marriage.second_upcoming_none")}</div>`;
+            return `<div class="m-upcoming-title">${I18N.t("marriage.upcoming")}</div>${body}
+              <div class="m-upcoming-title">${I18N.t("marriage.second_upcoming", { planet: SECOND_LORD ? planet(SECOND_LORD) : "" })}</div>${secondBody}`;
+          }
+
+          // The Venus and 2nd-lord checks for the chain in the box, as two
+          // rows under the 3-7-11 verdict.
+          function extraChecksHtml(chain) {
+            const lords = chain.map((l) => l.label);
+            const c = marriageChecks(lords);
+            const roleOf = (i) => I18N.term("dasha_level", chain[i].role);
+            const mark = { yes: "&#10003;", no: "&#10007;", open: "&hellip;" };
+
+            let venusMsg;
+            if (c.venusSlots.length) {
+              const role = c.venusSlots.map(roleOf).join(" & ");
+              const failing = c.others.filter((l) => !connects(l));
+              venusMsg = c.r2 === "yes" ? I18N.t("marriage.venus_yes", { role })
+                : c.r2 === "no" ? I18N.t("marriage.venus_others_fail", { role, lords: failing.map(planet).join(", ") })
+                : I18N.t("marriage.venus_open", { role });
+            } else {
+              venusMsg = c.r2 === "no" ? I18N.t("marriage.venus_absent") : I18N.t("marriage.venus_pick_bhukti");
+            }
+
+            let secondMsg;
+            if (!SECOND_LORD) secondMsg = I18N.t("houses.no_data");
+            else if (c.r3 === "yes") secondMsg = I18N.t("marriage.second_yes", { planet: planet(SECOND_LORD), role: roleOf(lords.indexOf(SECOND_LORD)) });
+            else if (c.r3 === "no") secondMsg = I18N.t("marriage.second_no", { planet: planet(SECOND_LORD) });
+            else secondMsg = I18N.t("marriage.second_open", { planet: planet(SECOND_LORD) });
+
+            const row = (status, titleKey, msg) => `
+              <div class="m-check ${status}">
+                <span class="m-mark">${mark[status]}</span>
+                <div><div class="m-check-title">${I18N.t(titleKey)}</div><div>${msg}</div></div>
+              </div>`;
+            return `<div class="m-upcoming-title">${I18N.t("marriage.more_checks")}</div>
+              ${row(c.r2, "marriage.venus_title", venusMsg)}
+              ${row(c.r3, "marriage.second_title", secondMsg)}`;
           }
 
           // Remembered for a redraw on a language switch, like the Houses box.
@@ -2585,6 +2704,7 @@ PAGE_TEMPLATE = """
               ${blocks}
               <div class="m-verdict${passed ? " on" : ""}">${verdict}</div>
               <div class="m-touch">${I18N.t("marriage.touches")} ${chips}</div>
+              ${extraChecksHtml(chain)}
               ${upcomingHtml(today)}`;
           }
 
