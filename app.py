@@ -202,7 +202,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v7";
+const CACHE_NAME = "vedic-chart-v8";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -2005,7 +2005,11 @@ PAGE_TEMPLATE = """
   .table-wrap table { margin: 0; }
   .dasha-current td { background: var(--primary-grad-soft) !important; }
 
-  .dasha-row { cursor: pointer; user-select: none; }
+  .dasha-row { cursor: pointer; user-select: none; touch-action: manipulation; }
+  /* The row feeding the Houses Involved and 3-7-11 boxes - on a phone those
+     boxes update below the fold, so the tapped row itself shows the pick. */
+  .dasha-row.dasha-selected > td { font-weight: 700; color: var(--text); }
+  .dasha-row.dasha-selected > td:first-child { box-shadow: inset 3px 0 0 var(--primary-2); }
   .toggle-arrow {
     display: inline-block;
     width: 14px;
@@ -2640,6 +2644,8 @@ PAGE_TEMPLATE = """
             const level = parseInt(row.dataset.level, 10);
 
             if (level <= HOUSES_BOX_MAX_LEVEL) {
+              tbody.querySelectorAll(".dasha-selected").forEach((r) => r.classList.remove("dasha-selected"));
+              row.classList.add("dasha-selected");
               updateHousesBox(lordChain(row));
               updateMarriageBox(lordChain(row), false);
             }

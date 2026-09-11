@@ -188,6 +188,38 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 .conn-verdict{margin-top:10px;padding:7px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.04);border-left:3px solid rgba(255,170,102,.6);color:rgba(240,230,210,.9)}
 .conn-verdict.on{border-left-color:#44dd88}
 .conn-note{margin-top:8px;font-size:9px;color:rgba(200,195,175,.45)}
+/* Connection wheel */
+.wheel-modes{display:inline-flex;gap:2px;padding:3px;margin-bottom:12px;border:1px solid rgba(255,170,102,.35);border-radius:999px;background:rgba(255,170,102,.05)}
+.wheel-mode{font-family:'Cinzel',serif;font-size:10px;font-weight:700;letter-spacing:.05em;padding:6px 16px;border:none;border-radius:999px;background:transparent;color:rgba(240,225,200,.7);cursor:pointer;touch-action:manipulation}
+.wheel-mode.on{background:linear-gradient(135deg,#ff9955 0%,#ffcc88 100%);color:#2a1400}
+.wheel-wrap{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.wheel-fig{flex:0 1 340px;width:100%;max-width:340px;min-width:0;margin:0 auto}
+.wheel-svg{display:block;width:100%;height:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.wheel-node{cursor:pointer}
+@media (hover:hover){.wheel-node:hover .wn{stroke:#fff}}
+.wheel-label{font-family:'Cinzel',serif;font-size:10.5px;font-weight:700;pointer-events:none}
+.wheel-sub{font-size:8.5px;fill:rgba(240,225,200,.6);pointer-events:none}
+.wheel-centre-n{font-family:'Cinzel',serif;font-size:26px;font-weight:700;fill:#ffcc88;pointer-events:none}
+.wheel-centre-c{font-size:9px;fill:rgba(240,225,200,.55);pointer-events:none}
+.wheel-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:6px;font-size:9.5px;color:rgba(240,225,200,.7)}
+.wheel-legend i{display:inline-block;width:16px;height:3px;margin-right:4px;border-radius:2px;vertical-align:middle}
+.wheel-detail{flex:1 1 240px;min-width:0;font-size:11px;color:rgba(240,230,210,.9)}
+.wheel-title{margin-bottom:6px;font-family:'Cinzel',serif;font-size:12px;font-weight:700;color:#ffcc88}
+.wheel-hint{margin-bottom:8px;color:rgba(240,225,200,.7)}
+.wheel-most{line-height:2.1}
+.wheel-partner{padding:7px 0;border-top:1px solid rgba(255,255,255,.06)}
+.wheel-partner ul{margin:3px 0 0;padding:0;list-style:none}
+.wheel-partner li{position:relative;padding:2px 0 2px 14px;line-height:1.45}
+.lt-dot{position:absolute;left:0;top:.6em;width:8px;height:8px;border-radius:50%}
+.wheel-jump{padding:2px 8px;border:1px solid rgba(255,170,102,.35);border-radius:10px;background:rgba(255,170,102,.08);color:#ffcc88;font-family:'Cinzel',serif;font-size:10px;font-weight:700;cursor:pointer;touch-action:manipulation}
+.wheel-jump:hover{background:rgba(255,170,102,.2)}
+.wheel-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.wheel-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:4px 10px;border:1px solid rgba(255,170,102,.3);border-radius:15px;background:rgba(255,170,102,.06);color:rgba(240,225,200,.85);font-family:'Cinzel',serif;font-size:10px;cursor:pointer;touch-action:manipulation}
+.wheel-chip:hover{border-color:rgba(255,170,102,.7)}
+.wheel-chip.on{background:rgba(255,170,102,.25);border-color:#ffaa66;color:#fff}
+.wheel-chip:disabled{opacity:.35;cursor:default}
+.wheel-count{min-width:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.1);font-family:'Lato',sans-serif;font-size:9px;text-align:center}
+.wheel-mode:focus-visible,.wheel-chip:focus-visible,.wheel-jump:focus-visible{outline:2px solid #ffcc88;outline-offset:2px}
 .sign-color-card{
   background:rgba(255,255,255,.04);border:1px solid rgba(170,255,221,.1);
   border-radius:10px;padding:12px 14px;
@@ -386,7 +418,20 @@ body.compare .dash-sections{grid-template-columns:repeat(auto-fit,minmax(170px,1
   body.compare .panels{flex-direction:column;align-items:center}
   body.compare .panel{flex:1 1 auto;width:100%;--cell:clamp(38px,calc((100vw - 300px) / 4),106px)}
   body.compare .palette{min-width:clamp(70px,22vw,115px)}
+  /* Stacked charts are full width again, so the toggle has room for its
+     words - and touch screens have no tooltip to name it otherwise. */
+  body.compare .moon-ctl-text{display:inline}
 }
+/* Touch screens: fingers need bigger targets than a mouse pointer. */
+@media (pointer:coarse){
+  .moon-ctl{padding:6px 2px}
+  .moon-ctl input{width:18px;height:18px}
+  .moon-ctl input:checked::after{font-size:12px}
+  .wheel-mode{padding:9px 18px;font-size:11px}
+  .wheel-chip{min-height:38px;padding:6px 12px;font-size:11px}
+  .wheel-jump{padding:5px 10px;font-size:11px}
+}
+.dash-tab{touch-action:manipulation}
 </style>
 </head>
 <body>
@@ -808,6 +853,18 @@ const DHANA_HOUSES=[2,9,11];
 const SUBHA_HOUSES=[8,12];
 const SUBHA_GIVERS=['Jup','Ven'];
 const SUBHA_MOON_DISTS=[5,6,7];
+
+// Connection wheel. LINK_STYLE is in strength order: a pair's line takes the
+// colour of the strongest link it has.
+const WHEEL_PLANETS=['Sun','Mon','Mar','Mer','Jup','Ven','Sat','Rahu','Ketu'];
+const LINK_STYLE={
+  exchange:{color:'#ffd24a',key:'pg.lt_exchange'},
+  same:    {color:'#cc88ff',key:'pg.lt_same'},
+  conj:    {color:'#55dd88',key:'pg.lt_conj'},
+  in:      {color:'#ff9955',key:'pg.lt_in'},
+  aspect:  {color:'#6fb6ff',key:'pg.lt_aspect'},
+};
+const LINK_ORDER=Object.keys(LINK_STYLE);
 
 // ── ASPECT RULES ─────────────────────────────────
 function getAspectOffsets(planet,signIdx,sunSIdx){
@@ -1900,7 +1957,7 @@ function createChart(root,opts){
     updateSignColorsDashboard();
 
     // ── CONNECTIONS TAB ──
-    sec('conn').innerHTML=buildConnectionsTab();
+    renderConnections();
   }
 
   // ═══════════════════════════════════════════════════
@@ -1915,40 +1972,63 @@ function createChart(root,opts){
     return getAspectOffsets(planet,sIdx,sunSIdx).filter(off=>off!==1).map(off=>({off,sIdx:aspectSign(sIdx,off)}));
   }
 
-  // 2-9-11: for each pair of the three houses, every way their lords tie them
-  // together - sign exchange, one lord sitting in or aspecting the other's
-  // house, one lord aspecting the other, conjunction, or one planet ruling both.
+  // House h's sign, its lord, and where that lord sits - all the link checks read.
+  function houseInfo(ascSIdx,h){
+    const sIdx=houseSign(ascSIdx,h);
+    const lord=SIGN_LORD[SIGNS[sIdx]];
+    return {h,sIdx,lord,lordSIdx:findPlanetSignIdx(lord)};
+  }
+
+  // Every way the lords of two houses tie them together - one planet ruling
+  // both, sign exchange, one lord sitting in or aspecting the other's house,
+  // one lord aspecting the other, or the lords conjunct. Each link is
+  // {type, text}; `type` keys LINK_STYLE, which colours the wheel.
+  function linkHouses(A,B,sunSIdx){
+    const links=[];
+    if(A.lord===B.lord){
+      links.push({type:'same',text:T('pg.link_same_lord',{planet:PN(A.lord),a:ORD(A.h),b:ORD(B.h)})});
+      return links;
+    }
+    const lordOf=(X)=>({planet:PN(X.lord),a:ORD(X.h)});
+    const exchange=A.lordSIdx===B.sIdx&&B.lordSIdx===A.sIdx;
+    if(exchange) links.push({type:'exchange',text:T('pg.link_exchange',{p1:PN(A.lord),a:ORD(A.h),p2:PN(B.lord),b:ORD(B.h)})});
+    [[A,B],[B,A]].forEach(([X,Y])=>{
+      if(X.lordSIdx===-1) return;
+      // An exchange already says each lord sits in the other's house.
+      if(!exchange&&X.lordSIdx===Y.sIdx) links.push({type:'in',text:T('pg.link_in',{...lordOf(X),b:ORD(Y.h)})});
+      const asp=aspectsFrom(X.lord,X.lordSIdx,sunSIdx);
+      const onHouse=asp.find(s=>s.sIdx===Y.sIdx);
+      if(onHouse) links.push({type:'aspect',text:T('pg.link_aspect_house',{...lordOf(X),b:ORD(Y.h),n:ORD(onHouse.off)})});
+      // Y's lord sitting at home is already covered by the aspect on Y's house.
+      const onLord=Y.lordSIdx!==-1&&Y.lordSIdx!==Y.sIdx&&asp.find(s=>s.sIdx===Y.lordSIdx);
+      if(onLord) links.push({type:'aspect',text:T('pg.link_aspect_lord',{...lordOf(X),other:PN(Y.lord),b:ORD(Y.h),n:ORD(onLord.off)})});
+    });
+    if(A.lordSIdx!==-1&&A.lordSIdx===B.lordSIdx)
+      links.push({type:'conj',text:T('pg.link_conj',{p1:PN(A.lord),a:ORD(A.h),p2:PN(B.lord),b:ORD(B.h),sign:SN(SIGNS[A.lordSIdx])})});
+    return links;
+  }
+
+  // Every way two placed grahas are tied - together in one sign, sign
+  // exchange, one sitting in the other's sign, or aspect. P/Q are {code, sIdx}.
+  function linkPlanets(P,Q,sunSIdx){
+    const links=[];
+    if(P.sIdx===Q.sIdx) links.push({type:'conj',text:T('pg.plink_conj',{p:PN(P.code),q:PN(Q.code),sign:SN(SIGNS[P.sIdx])})});
+    const exchange=SIGN_LORD[SIGNS[P.sIdx]]===Q.code&&SIGN_LORD[SIGNS[Q.sIdx]]===P.code;
+    if(exchange) links.push({type:'exchange',text:T('pg.plink_exchange',{p:PN(P.code),q:PN(Q.code)})});
+    [[P,Q],[Q,P]].forEach(([X,Y])=>{
+      if(!exchange&&SIGN_LORD[SIGNS[X.sIdx]]===Y.code)
+        links.push({type:'in',text:T('pg.plink_in',{p:PN(X.code),q:PN(Y.code),sign:SN(SIGNS[X.sIdx])})});
+      const asp=aspectsFrom(X.code,X.sIdx,sunSIdx).find(s=>s.sIdx===Y.sIdx);
+      if(asp) links.push({type:'aspect',text:T('pg.plink_aspect',{p:PN(X.code),q:PN(Y.code),n:ORD(asp.off)})});
+    });
+    return links;
+  }
+
+  // 2-9-11: the three pairs of the wealth houses, through linkHouses.
   function compute2911(ascSIdx,sunSIdx){
     const info={};
-    DHANA_HOUSES.forEach(h=>{
-      const sIdx=houseSign(ascSIdx,h);
-      const lord=SIGN_LORD[SIGNS[sIdx]];
-      info[h]={h,sIdx,lord,lordSIdx:findPlanetSignIdx(lord)};
-    });
-    const lordOf=(X)=>({planet:PN(X.lord),a:ORD(X.h)});
-    const pairs=[[2,9],[2,11],[9,11]].map(([a,b])=>{
-      const A=info[a],B=info[b],links=[];
-      if(A.lord===B.lord){
-        links.push(T('pg.link_same_lord',{planet:PN(A.lord),a:ORD(a),b:ORD(b)}));
-        return {a,b,links};
-      }
-      const exchange=A.lordSIdx===B.sIdx&&B.lordSIdx===A.sIdx;
-      if(exchange) links.push(T('pg.link_exchange',{p1:PN(A.lord),a:ORD(a),p2:PN(B.lord),b:ORD(b)}));
-      [[A,B],[B,A]].forEach(([X,Y])=>{
-        if(X.lordSIdx===-1) return;
-        // An exchange already says each lord sits in the other's house.
-        if(!exchange&&X.lordSIdx===Y.sIdx) links.push(T('pg.link_in',{...lordOf(X),b:ORD(Y.h)}));
-        const asp=aspectsFrom(X.lord,X.lordSIdx,sunSIdx);
-        const onHouse=asp.find(s=>s.sIdx===Y.sIdx);
-        if(onHouse) links.push(T('pg.link_aspect_house',{...lordOf(X),b:ORD(Y.h),n:ORD(onHouse.off)}));
-        // Y's lord sitting at home is already covered by the aspect on Y's house.
-        const onLord=Y.lordSIdx!==-1&&Y.lordSIdx!==Y.sIdx&&asp.find(s=>s.sIdx===Y.lordSIdx);
-        if(onLord) links.push(T('pg.link_aspect_lord',{...lordOf(X),other:PN(Y.lord),b:ORD(Y.h),n:ORD(onLord.off)}));
-      });
-      if(A.lordSIdx!==-1&&A.lordSIdx===B.lordSIdx)
-        links.push(T('pg.link_conj',{p1:PN(A.lord),a:ORD(a),p2:PN(B.lord),b:ORD(b),sign:SN(SIGNS[A.lordSIdx])}));
-      return {a,b,links};
-    });
+    DHANA_HOUSES.forEach(h=>{info[h]=houseInfo(ascSIdx,h);});
+    const pairs=[[2,9],[2,11],[9,11]].map(([a,b])=>({a,b,links:linkHouses(info[a],info[b],sunSIdx).map(l=>l.text)}));
     const offChart=[...new Set(DHANA_HOUSES.filter(h=>info[h].lordSIdx===-1).map(h=>info[h].lord))];
     return {info,pairs,offChart};
   }
@@ -1977,9 +2057,158 @@ function createChart(root,opts){
     return {houses,moon,sunPlaced:sunSIdx!==-1};
   }
 
+  // ── CONNECTION WHEEL ─────────────────────────────
+  // The 12 houses (or 9 grahas) around a circle, one curved line per
+  // connected pair: coloured by its strongest link, thicker for more links.
+  // Tapping a node - or its chip, the keyboard/touch-friendly twin - keeps
+  // only that node's lines lit and lists them in words beside the wheel.
+  let wheelMode='houses';   // 'houses' | 'planets'
+  let wheelSel=null;        // selected node id (house number or planet code, as a string)
+
+  function wheelData(){
+    const sunSIdx=findPlanetSignIdx('Sun');
+    let nodes;
+    if(wheelMode==='houses'){
+      const ascSIdx=findPlanetSignIdx('Asc');
+      if(ascSIdx===-1) return null;
+      nodes=[];
+      for(let h=1;h<=12;h++){
+        const info=houseInfo(ascSIdx,h),sign=SIGNS[info.sIdx];
+        nodes.push({id:String(h),info,placed:true,label:String(h),chip:ORD(h),sub:shortLabel(SN(sign),3),
+          name:`${ORD(h)} · ${SN(sign)}`,title:T('pg.wheel_house_title',{n:ORD(h),sign:SN(sign),planet:PN(info.lord)})});
+      }
+    } else {
+      nodes=WHEEL_PLANETS.map(code=>{
+        const sIdx=findPlanetSignIdx(code),placed=sIdx!==-1;
+        return {id:code,info:{code,sIdx},placed,label:PA(code),chip:PA(code),sub:placed?shortLabel(SN(SIGNS[sIdx]),3):'',
+          name:PN(code),title:placed?`${PN(code)} · ${SN(SIGNS[sIdx])}`:PN(code)};
+      });
+    }
+    const pairs=[];
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+      if(!nodes[i].placed||!nodes[j].placed) continue;
+      const links=wheelMode==='houses'?linkHouses(nodes[i].info,nodes[j].info,sunSIdx):linkPlanets(nodes[i].info,nodes[j].info,sunSIdx);
+      if(links.length){
+        links.sort((x,y)=>LINK_ORDER.indexOf(x.type)-LINK_ORDER.indexOf(y.type));
+        pairs.push({a:i,b:j,links,type:links[0].type});
+      }
+    }
+    return {nodes,pairs,sunSIdx};
+  }
+
+  function nodeColors(node){
+    if(wheelMode==='houses') return {fill:'#211b35',text:'#ffcc88',stroke:node.id==='1'?'#d4af37':'rgba(255,170,102,.55)'};
+    if(node.id==='Mon'){
+      const mc=moonColor(moonBrightness(node.info.sIdx,findPlanetSignIdx('Sun')));
+      return {fill:mc.bg,text:mc.text,stroke:'rgba(220,230,255,.6)'};
+    }
+    return {fill:PLANET_BASE[node.id].bg,text:PLANET_BASE[node.id].text,stroke:'rgba(255,255,255,.35)'};
+  }
+
+  function buildWheelSection(){
+    const modeBtns=['houses','planets'].map(m=>
+      `<button type="button" class="wheel-mode${wheelMode===m?' on':''}" data-wheel-mode="${m}" aria-pressed="${wheelMode===m}">${T('pg.wheel_'+m)}</button>`).join('');
+    const open=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">🕸 ${T('pg.wheel')}</h3>
+      <div class="wheel-modes" role="group" aria-label="${T('pg.wheel')}">${modeBtns}</div>`;
+    const d=wheelData();
+    if(!d) return `${open}<div class="no-data">${T('pg.conn_need_asc')}</div></div>`;
+
+    const n=d.nodes.length,C=160,R=112;
+    const pos=d.nodes.map((_,i)=>{const a=-Math.PI/2+i*2*Math.PI/n;return {a,x:C+R*Math.cos(a),y:C+R*Math.sin(a)};});
+    const count=d.nodes.map((_,i)=>d.pairs.filter(p=>p.a===i||p.b===i).length);
+    const selIdx=d.nodes.findIndex(x=>x.id===wheelSel);
+    const partners=new Set(d.pairs.filter(p=>p.a===selIdx||p.b===selIdx).map(p=>p.a===selIdx?p.b:p.a));
+    const f=(v)=>v.toFixed(1);
+
+    // Lines bow toward the centre; the selected node's lines are drawn last
+    // so they sit on top of the dimmed rest.
+    const lines=d.pairs.map(p=>{
+      const A=pos[p.a],B=pos[p.b];
+      const qx=C+((A.x+B.x)/2-C)*.35,qy=C+((A.y+B.y)/2-C)*.35;
+      const lit=selIdx===-1||p.a===selIdx||p.b===selIdx;
+      const width=Math.min(1.6+(p.links.length-1)*1.2,5.5);
+      // With nothing picked, aspect-only pairs - most of them - stay faint so
+      // the stronger links read at a glance.
+      const op=selIdx===-1?(p.type==='aspect'?.2:.85):lit?.95:.06;
+      return {lit:selIdx!==-1&&lit,svg:`<path d="M${f(A.x)} ${f(A.y)} Q${f(qx)} ${f(qy)} ${f(B.x)} ${f(B.y)}" fill="none" stroke="${LINK_STYLE[p.type].color}" stroke-width="${width}" stroke-linecap="round" opacity="${op}"/>`};
+    }).sort((x,y)=>x.lit-y.lit).map(l=>l.svg).join('');
+
+    const nodesSvg=d.nodes.map((node,i)=>{
+      const {a,x,y}=pos[i];
+      const isSel=i===selIdx;
+      const dim=!node.placed||(selIdx!==-1&&!isSel&&!partners.has(i));
+      const c=nodeColors(node);
+      const lx=C+(R+30)*Math.cos(a),ly=C+(R+30)*Math.sin(a);
+      return `<g class="wheel-node" data-wheel-node="${node.id}" opacity="${dim?.3:1}">
+        <circle cx="${f(x)}" cy="${f(y)}" r="23" fill="transparent"/>
+        ${isSel?`<circle cx="${f(x)}" cy="${f(y)}" r="22" fill="rgba(255,204,136,.22)"/>`:''}
+        <circle class="wn" cx="${f(x)}" cy="${f(y)}" r="16" fill="${c.fill}" stroke="${isSel?'#fff':partners.has(i)?'#ffcc88':c.stroke}" stroke-width="${isSel?3:partners.has(i)?2:1.4}"${node.placed?'':' stroke-dasharray="3 3"'}/>
+        <text x="${f(x)}" y="${f(y)}" dy=".35em" text-anchor="middle" class="wheel-label" fill="${c.text}">${node.label}</text>
+        ${node.sub?`<text x="${f(lx)}" y="${f(ly)}" dy=".35em" text-anchor="middle" class="wheel-sub">${node.sub}</text>`:''}
+      </g>`;
+    }).join('');
+
+    // Centre: how many pairs connect overall, or how many partners the
+    // selected node has.
+    const centre=selIdx===-1
+      ?[d.pairs.length,T('pg.wheel_pairs')]
+      :[count[selIdx],T('pg.wheel_partners')];
+    const svg=`<svg class="wheel-svg" viewBox="0 0 320 320" role="img" aria-label="${T('pg.wheel')}">
+      ${lines}${nodesSvg}
+      <text x="${C}" y="${C-4}" text-anchor="middle" class="wheel-centre-n">${centre[0]}</text>
+      <text x="${C}" y="${C+14}" text-anchor="middle" class="wheel-centre-c">${centre[1]}</text></svg>`;
+
+    const types=wheelMode==='houses'?LINK_ORDER:LINK_ORDER.filter(t=>t!=='same');
+    const legend=`<div class="wheel-legend">${types.map(t=>`<span><i style="background:${LINK_STYLE[t].color}"></i>${T(LINK_STYLE[t].key)}</span>`).join('')}</div>`;
+
+    let detail;
+    if(selIdx===-1){
+      const top=d.nodes.map((node,i)=>({node,n:count[i]})).filter(x=>x.n).sort((x,y)=>y.n-x.n).slice(0,3);
+      detail=`<div class="wheel-hint">${T(wheelMode==='houses'?'pg.wheel_hint_houses':'pg.wheel_hint_planets')}</div>
+        ${top.length?`<div class="wheel-most">${T('pg.wheel_most')} ${top.map(x=>`<button type="button" class="wheel-jump" data-wheel-node="${x.node.id}">${x.node.name} (${x.n})</button>`).join(' ')}</div>`:''}`;
+    } else {
+      const node=d.nodes[selIdx];
+      const mine=d.pairs.filter(p=>p.a===selIdx||p.b===selIdx).map(p=>({other:d.nodes[p.a===selIdx?p.b:p.a],links:p.links}));
+      const body=!node.placed?`<div class="no-data">${T('pg.wheel_off_chart')}</div>`
+        :mine.length?mine.map(m=>`<div class="wheel-partner">
+            <button type="button" class="wheel-jump" data-wheel-node="${m.other.id}">${m.other.name}</button>
+            <ul>${m.links.map(l=>`<li><span class="lt-dot" style="background:${LINK_STYLE[l.type].color}"></span>${l.text}</li>`).join('')}</ul>
+          </div>`).join('')
+        :`<div class="no-data">${T('pg.wheel_none')}</div>`;
+      detail=`<div class="wheel-title">${node.title}</div>${body}`;
+    }
+
+    const chips=d.nodes.map((node,i)=>`<button type="button" class="wheel-chip${i===selIdx?' on':''}" data-wheel-node="${node.id}" aria-pressed="${i===selIdx}"${node.placed?'':' disabled'}>${node.chip}<span class="wheel-count">${count[i]}</span></button>`).join('');
+
+    return `${open}
+      <div class="wheel-wrap">
+        <div class="wheel-fig">${svg}${legend}</div>
+        <div class="wheel-detail" aria-live="polite">${detail}</div>
+      </div>
+      <div class="wheel-chips">${chips}</div>
+      <div class="conn-note">${T(wheelMode==='houses'?'pg.wheel_note_houses':'pg.wheel_note_planets')}</div></div>`;
+  }
+
+  // One listener on the tab (its HTML is rebuilt on every update) handles
+  // the mode switch and every node, chip and partner button.
+  function onConnectionsClick(e){
+    const mode=e.target.closest('[data-wheel-mode]');
+    if(mode){
+      if(mode.dataset.wheelMode!==wheelMode){wheelMode=mode.dataset.wheelMode;wheelSel=null;renderConnections();}
+      return;
+    }
+    const node=e.target.closest('[data-wheel-node]');
+    if(!node||node.disabled) return;
+    wheelSel=wheelSel===node.dataset.wheelNode?null:node.dataset.wheelNode;
+    renderConnections();
+  }
+  function renderConnections(){sec('conn').innerHTML=buildConnectionsTab();}
+
   function buildConnectionsTab(){
+    const wheel=buildWheelSection();
     const ascSIdx=findPlanetSignIdx('Asc');
-    if(ascSIdx===-1) return `<div class="no-data" style="grid-column:1/-1">${T('pg.conn_need_asc')}</div>`;
+    // House mode's wheel already asks for the Ascendant.
+    if(ascSIdx===-1) return wheelMode==='houses'?wheel:wheel+`<div class="no-data" style="grid-column:1/-1">${T('pg.conn_need_asc')}</div>`;
     const sunSIdx=findPlanetSignIdx('Sun');
     const th=(key)=>`<th style="color:rgba(255,170,102,.7)">${T(key)}</th>`;
     const list=(items)=>items.length?`<ul class="conn-links">${items.map(x=>`<li>${x}</li>`).join('')}</ul>`:'—';
@@ -2025,7 +2254,7 @@ function createChart(root,opts){
       ${moonLine?`<div class="conn-note">☽ ${moonLine}</div>`:''}
       <div class="conn-note">${T('pg.conn_subha_note')}</div></div>`;
 
-    return dhana+subha;
+    return wheel+dhana+subha;
   }
 
 
@@ -2232,6 +2461,7 @@ function createChart(root,opts){
   // These used to be inline onclick/oninput attributes calling page-global
   // functions; with two charts on screen each panel has to reach its own.
   root.querySelector('.js-clear').addEventListener('click',clearAll);
+  sec('conn').addEventListener('click',onConnectionsClick);
   root.querySelector('.ray-opacity').addEventListener('input',function(){onRayOpacityChange(this);});
   root.querySelector('.moon-light-toggle').addEventListener('change',function(){showMoonLight=this.checked;updateMoonKendraLight();});
   root.querySelector('.cb-master-arrow').addEventListener('change',function(){toggleAllCb('arrow',this.checked);});
