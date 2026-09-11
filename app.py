@@ -202,7 +202,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v6";
+const CACHE_NAME = "vedic-chart-v7";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -1071,6 +1071,59 @@ def build_dasha_house_map(subject, ascendant_abbr):
             "connections": connection_list,
         }
 
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 3-7-11 connection - marriage timing
+# ---------------------------------------------------------------------------
+# The 3rd, 7th and 11th from the Ascendant are the houses read for marriage.
+# A period supports marriage when its Dasha, Bhukti and Antaram lords each
+# connect to one of them: by sitting in it, aspecting it, ruling it, or
+# exchanging signs with its lord. Rahu/Ketu have no aspects or signs of their
+# own, so they connect through the planets tied to them - dispositor,
+# conjunction, aspect - the same links build_dasha_house_map lists for them.
+MARRIAGE_HOUSES = (3, 7, 11)
+
+
+def build_marriage_links(subject, house_map):
+    """Every way each of the nine dasha lords touches the 3rd, 7th or 11th.
+
+    Returns {lord label: [{"house": 7, "how": "placement", "via": None}, ...]}
+    - `how` is placement / aspect / lordship / exchange for the classical
+    grahas, and dispositor / conjunct / aspecting for Rahu/Ketu, with `via`
+    naming the planet the link runs through. An empty list means the lord
+    has no 3-7-11 connection. `house_map` is build_dasha_house_map()'s result.
+    """
+    signs = {
+        symbol_to_label(symbol): getattr(subject, attr)["sign"]
+        for attr, (_, symbol) in PLANETS.items()
+    }
+    targets = set(MARRIAGE_HOUSES)
+
+    def link(house, how, via=None):
+        return {"house": house, "how": how, "via": via}
+
+    result = {}
+    for label, info in house_map.items():
+        links = []
+        if info["placement"] in targets:
+            links.append(link(info["placement"], "placement"))
+        if info["type"] == "classical":
+            links += [link(h, "aspect") for h in info["aspects"] if h in targets]
+            links += [link(h, "lordship") for h in info["lordship"] if h in targets]
+            # Exchange (parivartana): this lord sits in a sign `partner` rules
+            # while `partner` sits in one of this lord's signs, so each takes
+            # on the other's houses.
+            partner = SIGN_LORD.get(signs[label])
+            if partner and partner != label and signs[partner] in RULERSHIP[label]:
+                links += [link(h, "exchange", partner)
+                          for h in house_map[partner]["lordship"] if h in targets]
+        else:
+            for conn in info["connections"]:
+                for role in conn["roles"]:
+                    links += [link(h, role, conn["planet"]) for h in conn["houses"] if h in targets]
+        result[label] = links
     return result
 
 
@@ -2012,6 +2065,37 @@ PAGE_TEMPLATE = """
   .detail-line em { color: var(--muted); font-style: normal; font-size: 11px; }
   .muted-line { color: var(--muted); font-size: 12px; }
 
+  /* 3-7-11 (marriage) box */
+  .m-caption { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .m-links { margin: 0; padding-left: 18px; }
+  .m-links li { padding: 1px 0; }
+  .m-verdict {
+    margin-top: 12px;
+    padding: 9px 12px;
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--muted);
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+  .m-verdict.on { border-left-color: #3fbf7f; }
+  .m-touch { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .m-house { padding: 1px 9px; border-radius: 999px; border: 1px solid var(--border); }
+  .m-house.on { color: var(--text); border-color: var(--primary-2); background: var(--primary-grad-soft); }
+  .m-upcoming-title {
+    margin-top: 18px;
+    margin-bottom: 6px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--primary-2);
+  }
+  .m-upcoming-wrap { overflow-x: auto; }
+  .m-upcoming { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .m-upcoming td { padding: 5px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+  .m-upcoming tr.now td { background: var(--primary-grad-soft); font-weight: 600; }
+
   .conj-tier {
     display: inline-block;
     margin-left: 8px;
@@ -2223,6 +2307,17 @@ PAGE_TEMPLATE = """
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
 
+      <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span></div>
+      <small class="hint" data-i18n="marriage.hint">
+        For marriage timing, the Dasha, Bhukti and Antaram lords should each
+        connect to the 3rd, 7th or 11th house - by sitting in it, aspecting it,
+        ruling it, or exchanging signs with its lord (Rahu/Ketu through the
+        planets tied to them). Shows the period running today; tap a
+        Mahadasha, Antardasha or Pratyantardasha row to check another.
+      </small>
+      <div id="marriageBox" class="houses-box"></div>
+      <script id="marriageData" type="application/json">{{ marriage_json | safe }}</script>
+
       <div class="section-title"><span data-i18n="section.conj_degree">Conjunctions &ndash; By Degree (Orb)</span></div>
       <small class="hint" data-i18n="conj_degree.hint">
         Grahas (and the Ascendant) within 10&deg; of each other, worked out from
@@ -2379,6 +2474,116 @@ PAGE_TEMPLATE = """
           const tbody = document.querySelector("#dashaTable tbody");
           if (!tbody) return;
 
+          // ── 3-7-11 (marriage) box ──────────────────────────────────
+          // Links per lord come from build_marriage_links; the periods are
+          // walked here with the same computeSubPeriods the table uses.
+          const marriageEl = document.getElementById("marriageData");
+          let MARRIAGE_LINKS = {};
+          try {
+            MARRIAGE_LINKS = marriageEl ? JSON.parse(marriageEl.textContent || "{}") : {};
+          } catch (err) {
+            MARRIAGE_LINKS = {};
+          }
+          const MARRIAGE_HOUSES = [3, 7, 11];
+          const UPCOMING_LIMIT = 8;
+          const linksOf = (lord) => MARRIAGE_LINKS[lord] || [];
+          const connects = (lord) => linksOf(lord).length > 0;
+          const housesReached = (lords) =>
+            MARRIAGE_HOUSES.filter((h) => lords.some((lord) => linksOf(lord).some((l) => l.house === h)));
+          const linkText = (l) =>
+            I18N.t("marriage.how_" + l.how, { h: ordinal(l.house), planet: l.via ? planet(l.via) : "" });
+          const todayISO = () => isoDate(new Date());
+
+          // Mahadasha -> Antardasha -> Pratyantardasha running today, as the
+          // same {role, label, start, end} chain a row tap produces.
+          function currentChain(today) {
+            const maha = tbody.querySelector("tr.dasha-row.level-0.dasha-current");
+            if (!maha) return null;
+            const chain = lordChain(maha);
+            let parent = { lord: maha.dataset.lord, start: maha.dataset.start, years: parseFloat(maha.dataset.years) };
+            for (let level = 1; level <= 2; level++) {
+              const sub = computeSubPeriods(parent.lord, parent.start, parent.years)
+                .find((p) => p.start <= today && today < p.end);
+              if (!sub) break;
+              chain.push({ role: LEVEL_ROLES[level], label: sub.lord, start: sub.start, end: sub.end });
+              parent = sub;
+            }
+            return chain;
+          }
+
+          // The next Antaram periods (from today) whose Dasha, Bhukti and
+          // Antaram lords all connect - a branch is skipped as soon as one
+          // level's lord doesn't, since nothing under it can qualify.
+          function upcomingMatches(today, limit) {
+            const out = [];
+            for (const maha of tbody.querySelectorAll("tr.dasha-row.level-0")) {
+              if (maha.dataset.end < today || !connects(maha.dataset.lord)) continue;
+              for (const b of computeSubPeriods(maha.dataset.lord, maha.dataset.start, parseFloat(maha.dataset.years))) {
+                if (b.end < today || !connects(b.lord)) continue;
+                for (const a of computeSubPeriods(b.lord, b.start, b.years)) {
+                  if (a.end < today || !connects(a.lord)) continue;
+                  out.push({ lords: [maha.dataset.lord, b.lord, a.lord], start: a.start, end: a.end });
+                  if (out.length >= limit) return out;
+                }
+              }
+            }
+            return out;
+          }
+
+          function upcomingHtml(today) {
+            const rows = upcomingMatches(today, UPCOMING_LIMIT);
+            const body = rows.length
+              ? `<div class="m-upcoming-wrap"><table class="m-upcoming">${rows.map((r) => `
+                  <tr class="${r.start <= today ? "now" : ""}">
+                    <td>${r.lords.map(planet).join(" &ndash; ")}${r.start <= today ? ` (${I18N.t("marriage.now")})` : ""}</td>
+                    <td>${r.start} &rarr; ${r.end}</td>
+                    <td>${housesList(housesReached(r.lords))}</td>
+                  </tr>`).join("")}</table></div>`
+              : `<div class="muted-line">${I18N.t("marriage.upcoming_none")}</div>`;
+            return `<div class="m-upcoming-title">${I18N.t("marriage.upcoming")}</div>${body}`;
+          }
+
+          // Remembered for a redraw on a language switch, like the Houses box.
+          let marriageSelection = null;
+
+          function updateMarriageBox(chain, isCurrent) {
+            marriageSelection = { chain, isCurrent };
+            const box = document.getElementById("marriageBox");
+            if (!box) return;
+            const today = todayISO();
+            if (!chain || !chain.length) {
+              box.innerHTML = `<div class="placeholder-small">${I18N.t("marriage.no_current")}</div>${upcomingHtml(today)}`;
+              return;
+            }
+            const blocks = chain.map((l) => {
+              const links = linksOf(l.label);
+              const body = links.length
+                ? `<ul class="m-links">${links.map((x) => `<li>${linkText(x)}</li>`).join("")}</ul>`
+                : `<div class="muted-line">${I18N.t("marriage.no_link")}</div>`;
+              return `
+                <div class="dasha-level-block">
+                  <div class="dl-heading">${links.length ? "&#10003;" : "&#10007;"} ${I18N.term("dasha_level", l.role)}: ${planet(l.label)}<span class="dl-period">(${l.start} &rarr; ${l.end})</span></div>
+                  <div class="planet-block">${body}</div>
+                </div>`;
+            }).join("");
+            // A lord with no link fails the period at any depth; with every
+            // lord so far linked, only the full three-level chain can pass.
+            const missing = chain.filter((l) => !connects(l.label));
+            const passed = !missing.length && chain.length === 3;
+            const verdict = missing.length
+              ? I18N.t("marriage.no", { lords: missing.map((l) => planet(l.label)).join(", ") })
+              : passed ? I18N.t("marriage.yes") : I18N.t("marriage.need_antaram");
+            const reached = housesReached(chain.map((l) => l.label));
+            const chips = MARRIAGE_HOUSES
+              .map((h) => `<span class="m-house${reached.includes(h) ? " on" : ""}">${ordinal(h)}</span>`).join("");
+            box.innerHTML = `
+              <div class="m-caption">${I18N.t(isCurrent ? "marriage.showing_current" : "marriage.showing_selected")}</div>
+              ${blocks}
+              <div class="m-verdict${passed ? " on" : ""}">${verdict}</div>
+              <div class="m-touch">${I18N.t("marriage.touches")} ${chips}</div>
+              ${upcomingHtml(today)}`;
+          }
+
           // Each row's lord plus every ancestor above it, outermost first -
           // what the Houses Involved box lists when that row is tapped.
           // Server-rendered Mahadasha rows have no stored chain; theirs is
@@ -2434,7 +2639,10 @@ PAGE_TEMPLATE = """
             if (!row) return;
             const level = parseInt(row.dataset.level, 10);
 
-            if (level <= HOUSES_BOX_MAX_LEVEL) updateHousesBox(lordChain(row));
+            if (level <= HOUSES_BOX_MAX_LEVEL) {
+              updateHousesBox(lordChain(row));
+              updateMarriageBox(lordChain(row), false);
+            }
 
             if (level >= MAX_LEVEL) return;
             if (row.classList.contains("expanded")) {
@@ -2449,7 +2657,10 @@ PAGE_TEMPLATE = """
           // to be rebuilt from the last selection.
           I18N.onChange(() => {
             if (currentHousesSelection) updateHousesBox(currentHousesSelection);
+            if (marriageSelection) updateMarriageBox(marriageSelection.chain, marriageSelection.isCurrent);
           });
+
+          updateMarriageBox(currentChain(todayISO()), true);
         })();
       </script>
     {% else %}
@@ -2825,7 +3036,7 @@ def index():
     return render_template_string(
         PAGE_TEMPLATE, form=form, charts=None, error=None,
         ascendant=None, navamsa_ascendant=None, star_table=None,
-        dasha_table=None, dasha_house_json="{}", conjunctions=None,
+        dasha_table=None, dasha_house_json="{}", marriage_json="{}", conjunctions=None,
         sign_conjunctions=None, playground_url=None,
     )
 
@@ -2913,6 +3124,7 @@ def build_chart_context(form):
 
     ascendant_abbr = subject.first_house["sign"]
     dasha_house_map = build_dasha_house_map(subject, ascendant_abbr)
+    marriage_links = build_marriage_links(subject, dasha_house_map)
 
     return {
         "subject": subject,
@@ -2926,6 +3138,8 @@ def build_chart_context(form):
         "bhukti_window": build_dasha_bhukti_window(dasha_table, now),
         "dasha_house_map": dasha_house_map,
         "dasha_house_json": json.dumps(dasha_house_map),
+        "marriage_links": marriage_links,
+        "marriage_json": json.dumps(marriage_links),
         "playground_url": build_playground_url(subject),
     }
 
@@ -2947,6 +3161,7 @@ def generate():
             charts=ctx["charts"], ascendant=ctx["ascendant"],
             navamsa_ascendant=ctx["navamsa_ascendant"], star_table=ctx["star_table"],
             dasha_table=ctx["dasha_table"], dasha_house_json=ctx["dasha_house_json"],
+            marriage_json=ctx["marriage_json"],
             conjunctions=ctx["conjunctions"], sign_conjunctions=ctx["sign_conjunctions"],
             playground_url=ctx["playground_url"],
         )
@@ -2955,6 +3170,7 @@ def generate():
         return render_template_string(
             PAGE_TEMPLATE, form=form, charts=None, error=str(e), ascendant=None,
             navamsa_ascendant=None, star_table=None, dasha_table=None, dasha_house_json="{}",
+            marriage_json="{}",
             conjunctions=None, sign_conjunctions=None, playground_url=None,
         )
 
