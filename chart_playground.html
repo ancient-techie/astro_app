@@ -208,8 +208,11 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 .wheel-hint{margin-bottom:8px;color:rgba(240,225,200,.7)}
 .wheel-most{line-height:2.1}
 .wheel-partner{padding:7px 0;border-top:1px solid rgba(255,255,255,.06)}
-.wheel-partner ul{margin:3px 0 0;padding:0;list-style:none}
-.wheel-partner li{position:relative;padding:2px 0 2px 14px;line-height:1.45}
+.wheel-partner ul,.link-list{margin:3px 0 0;padding:0;list-style:none}
+.wheel-partner li,.link-list li{position:relative;padding:2px 0 2px 14px;line-height:1.45}
+.link-list{font-size:10.5px;color:rgba(240,230,210,.9)}
+.wheel-label-sm{font-size:8.5px}
+.wheel-chip-break{flex-basis:100%;height:0}
 .lt-dot{position:absolute;left:0;top:.6em;width:8px;height:8px;border-radius:50%}
 .wheel-jump{padding:2px 8px;border:1px solid rgba(255,170,102,.35);border-radius:10px;background:rgba(255,170,102,.08);color:#ffcc88;font-family:'Cinzel',serif;font-size:10px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .wheel-jump:hover{background:rgba(255,170,102,.2)}
@@ -862,6 +865,7 @@ const LINK_STYLE={
   same:    {color:'#cc88ff',key:'pg.lt_same'},
   conj:    {color:'#55dd88',key:'pg.lt_conj'},
   in:      {color:'#ff9955',key:'pg.lt_in'},
+  rules:   {color:'#ff77aa',key:'pg.lt_rules'},
   aspect:  {color:'#6fb6ff',key:'pg.lt_aspect'},
 };
 const LINK_ORDER=Object.keys(LINK_STYLE);
@@ -2058,46 +2062,85 @@ function createChart(root,opts){
   }
 
   // ── CONNECTION WHEEL ─────────────────────────────
-  // The 12 houses (or 9 grahas) around a circle, one curved line per
-  // connected pair: coloured by its strongest link, thicker for more links.
+  // Nodes around a circle, one line per connected pair: coloured by its
+  // strongest link, thicker for more links. Three views:
+  //   houses  - the 12 houses, linked through their lords;
+  //   planets - the 9 grahas, linked to each other;
+  //   mix     - houses on the outer ring, grahas on an inner ring, a line
+  //             wherever a graha sits in, rules or aspects a house.
   // Tapping a node - or its chip, the keyboard/touch-friendly twin - keeps
   // only that node's lines lit and lists them in words beside the wheel.
-  let wheelMode='houses';   // 'houses' | 'planets'
+  const WHEEL_MODES=['houses','planets','mix'];
+  const WHEEL_TYPES={
+    houses:['exchange','same','conj','in','aspect'],
+    planets:['exchange','conj','in','aspect'],
+    mix:['in','rules','aspect'],
+  };
+  let wheelMode='houses';
   let wheelSel=null;        // selected node id (house number or planet code, as a string)
+
+  // Nodes carry `ring`: 0 is the outer circle, 1 the inner one (mix view).
+  function houseNodes(ascSIdx){
+    const nodes=[];
+    for(let h=1;h<=12;h++){
+      const info=houseInfo(ascSIdx,h),sign=SIGNS[info.sIdx];
+      nodes.push({id:String(h),kind:'house',ring:0,info,placed:true,label:String(h),chip:ORD(h),sub:shortLabel(SN(sign),3),
+        name:`${ORD(h)} · ${SN(sign)}`,title:T('pg.wheel_house_title',{n:ORD(h),sign:SN(sign),planet:PN(info.lord)})});
+    }
+    return nodes;
+  }
+  function planetNodes(ring){
+    return WHEEL_PLANETS.map(code=>{
+      const sIdx=findPlanetSignIdx(code),placed=sIdx!==-1;
+      return {id:code,kind:'planet',ring,info:{code,sIdx},placed,label:PA(code),chip:PA(code),
+        sub:placed&&ring===0?shortLabel(SN(SIGNS[sIdx]),3):'',
+        name:PN(code),title:placed?`${PN(code)} · ${SN(SIGNS[sIdx])}`:PN(code)};
+    });
+  }
+
+  // How a placed graha touches house H: sitting in it, ruling it, or
+  // aspecting it. Rahu/Ketu rule nothing and cast no aspect here, so only
+  // placement counts for them.
+  function linkPlanetHouse(P,H,sunSIdx){
+    const links=[];
+    const args={p:PN(P.code),h:ORD(H.h)};
+    if(P.sIdx===H.sIdx) links.push({type:'in',text:T('pg.hlink_in',args)});
+    if(H.lord===P.code) links.push({type:'rules',text:T('pg.hlink_rules',args)});
+    const asp=aspectsFrom(P.code,P.sIdx,sunSIdx).find(s=>s.sIdx===H.sIdx);
+    if(asp) links.push({type:'aspect',text:T('pg.hlink_aspect',{...args,n:ORD(asp.off)})});
+    return links;
+  }
 
   function wheelData(){
     const sunSIdx=findPlanetSignIdx('Sun');
-    let nodes;
-    if(wheelMode==='houses'){
-      const ascSIdx=findPlanetSignIdx('Asc');
-      if(ascSIdx===-1) return null;
-      nodes=[];
-      for(let h=1;h<=12;h++){
-        const info=houseInfo(ascSIdx,h),sign=SIGNS[info.sIdx];
-        nodes.push({id:String(h),info,placed:true,label:String(h),chip:ORD(h),sub:shortLabel(SN(sign),3),
-          name:`${ORD(h)} · ${SN(sign)}`,title:T('pg.wheel_house_title',{n:ORD(h),sign:SN(sign),planet:PN(info.lord)})});
-      }
-    } else {
-      nodes=WHEEL_PLANETS.map(code=>{
-        const sIdx=findPlanetSignIdx(code),placed=sIdx!==-1;
-        return {id:code,info:{code,sIdx},placed,label:PA(code),chip:PA(code),sub:placed?shortLabel(SN(SIGNS[sIdx]),3):'',
-          name:PN(code),title:placed?`${PN(code)} · ${SN(SIGNS[sIdx])}`:PN(code)};
-      });
-    }
+    const ascSIdx=findPlanetSignIdx('Asc');
+    if(wheelMode!=='planets'&&ascSIdx===-1) return null;
     const pairs=[];
-    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
-      if(!nodes[i].placed||!nodes[j].placed) continue;
-      const links=wheelMode==='houses'?linkHouses(nodes[i].info,nodes[j].info,sunSIdx):linkPlanets(nodes[i].info,nodes[j].info,sunSIdx);
-      if(links.length){
-        links.sort((x,y)=>LINK_ORDER.indexOf(x.type)-LINK_ORDER.indexOf(y.type));
-        pairs.push({a:i,b:j,links,type:links[0].type});
+    const addPair=(a,b,links)=>{
+      if(!links.length) return;
+      links.sort((x,y)=>LINK_ORDER.indexOf(x.type)-LINK_ORDER.indexOf(y.type));
+      pairs.push({a,b,links,type:links[0].type});
+    };
+    let nodes;
+    if(wheelMode==='mix'){
+      const houses=houseNodes(ascSIdx),planets=planetNodes(1);
+      nodes=[...houses,...planets];
+      planets.forEach((P,pi)=>{
+        if(!P.placed) return;
+        houses.forEach((H,hi)=>addPair(houses.length+pi,hi,linkPlanetHouse(P.info,H.info,sunSIdx)));
+      });
+    } else {
+      nodes=wheelMode==='houses'?houseNodes(ascSIdx):planetNodes(0);
+      for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+        if(!nodes[i].placed||!nodes[j].placed) continue;
+        addPair(i,j,wheelMode==='houses'?linkHouses(nodes[i].info,nodes[j].info,sunSIdx):linkPlanets(nodes[i].info,nodes[j].info,sunSIdx));
       }
     }
-    return {nodes,pairs,sunSIdx};
+    return {nodes,pairs};
   }
 
   function nodeColors(node){
-    if(wheelMode==='houses') return {fill:'#211b35',text:'#ffcc88',stroke:node.id==='1'?'#d4af37':'rgba(255,170,102,.55)'};
+    if(node.kind==='house') return {fill:'#211b35',text:'#ffcc88',stroke:node.id==='1'?'#d4af37':'rgba(255,170,102,.55)'};
     if(node.id==='Mon'){
       const mc=moonColor(moonBrightness(node.info.sIdx,findPlanetSignIdx('Sun')));
       return {fill:mc.bg,text:mc.text,stroke:'rgba(220,230,255,.6)'};
@@ -2106,25 +2149,35 @@ function createChart(root,opts){
   }
 
   function buildWheelSection(){
-    const modeBtns=['houses','planets'].map(m=>
+    const modeBtns=WHEEL_MODES.map(m=>
       `<button type="button" class="wheel-mode${wheelMode===m?' on':''}" data-wheel-mode="${m}" aria-pressed="${wheelMode===m}">${T('pg.wheel_'+m)}</button>`).join('');
     const open=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">🕸 ${T('pg.wheel')}</h3>
       <div class="wheel-modes" role="group" aria-label="${T('pg.wheel')}">${modeBtns}</div>`;
     const d=wheelData();
     if(!d) return `${open}<div class="no-data">${T('pg.conn_need_asc')}</div></div>`;
 
-    const n=d.nodes.length,C=160,R=112;
-    const pos=d.nodes.map((_,i)=>{const a=-Math.PI/2+i*2*Math.PI/n;return {a,x:C+R*Math.cos(a),y:C+R*Math.sin(a)};});
+    // Each ring spaces its own nodes evenly, starting at the top.
+    const C=160,RING_R=[112,58],NODE_R=[16,13];
+    const pos=[];
+    [0,1].forEach(ring=>{
+      const idxs=d.nodes.map((node,i)=>node.ring===ring?i:-1).filter(i=>i!==-1);
+      idxs.forEach((i,k)=>{
+        const a=-Math.PI/2+k*2*Math.PI/idxs.length;
+        pos[i]={a,x:C+RING_R[ring]*Math.cos(a),y:C+RING_R[ring]*Math.sin(a)};
+      });
+    });
     const count=d.nodes.map((_,i)=>d.pairs.filter(p=>p.a===i||p.b===i).length);
     const selIdx=d.nodes.findIndex(x=>x.id===wheelSel);
     const partners=new Set(d.pairs.filter(p=>p.a===selIdx||p.b===selIdx).map(p=>p.a===selIdx?p.b:p.a));
     const f=(v)=>v.toFixed(1);
 
-    // Lines bow toward the centre; the selected node's lines are drawn last
-    // so they sit on top of the dimmed rest.
+    // Lines within one ring bow toward the centre; ring-to-ring lines (the
+    // mix view) run straight. The selected node's lines are drawn last so
+    // they sit on top of the dimmed rest.
+    const bow=wheelMode==='mix'?1:.35;
     const lines=d.pairs.map(p=>{
       const A=pos[p.a],B=pos[p.b];
-      const qx=C+((A.x+B.x)/2-C)*.35,qy=C+((A.y+B.y)/2-C)*.35;
+      const qx=C+((A.x+B.x)/2-C)*bow,qy=C+((A.y+B.y)/2-C)*bow;
       const lit=selIdx===-1||p.a===selIdx||p.b===selIdx;
       const width=Math.min(1.6+(p.links.length-1)*1.2,5.5);
       // With nothing picked, aspect-only pairs - most of them - stay faint so
@@ -2138,12 +2191,13 @@ function createChart(root,opts){
       const isSel=i===selIdx;
       const dim=!node.placed||(selIdx!==-1&&!isSel&&!partners.has(i));
       const c=nodeColors(node);
-      const lx=C+(R+30)*Math.cos(a),ly=C+(R+30)*Math.sin(a);
+      const r=NODE_R[node.ring];
+      const lx=C+(RING_R[0]+30)*Math.cos(a),ly=C+(RING_R[0]+30)*Math.sin(a);
       return `<g class="wheel-node" data-wheel-node="${node.id}" opacity="${dim?.3:1}">
-        <circle cx="${f(x)}" cy="${f(y)}" r="23" fill="transparent"/>
-        ${isSel?`<circle cx="${f(x)}" cy="${f(y)}" r="22" fill="rgba(255,204,136,.22)"/>`:''}
-        <circle class="wn" cx="${f(x)}" cy="${f(y)}" r="16" fill="${c.fill}" stroke="${isSel?'#fff':partners.has(i)?'#ffcc88':c.stroke}" stroke-width="${isSel?3:partners.has(i)?2:1.4}"${node.placed?'':' stroke-dasharray="3 3"'}/>
-        <text x="${f(x)}" y="${f(y)}" dy=".35em" text-anchor="middle" class="wheel-label" fill="${c.text}">${node.label}</text>
+        <circle cx="${f(x)}" cy="${f(y)}" r="${r+7}" fill="transparent"/>
+        ${isSel?`<circle cx="${f(x)}" cy="${f(y)}" r="${r+6}" fill="rgba(255,204,136,.22)"/>`:''}
+        <circle class="wn" cx="${f(x)}" cy="${f(y)}" r="${r}" fill="${c.fill}" stroke="${isSel?'#fff':partners.has(i)?'#ffcc88':c.stroke}" stroke-width="${isSel?3:partners.has(i)?2:1.4}"${node.placed?'':' stroke-dasharray="3 3"'}/>
+        <text x="${f(x)}" y="${f(y)}" dy=".35em" text-anchor="middle" class="wheel-label${node.ring?' wheel-label-sm':''}" fill="${c.text}">${node.label}</text>
         ${node.sub?`<text x="${f(lx)}" y="${f(ly)}" dy=".35em" text-anchor="middle" class="wheel-sub">${node.sub}</text>`:''}
       </g>`;
     }).join('');
@@ -2158,13 +2212,12 @@ function createChart(root,opts){
       <text x="${C}" y="${C-4}" text-anchor="middle" class="wheel-centre-n">${centre[0]}</text>
       <text x="${C}" y="${C+14}" text-anchor="middle" class="wheel-centre-c">${centre[1]}</text></svg>`;
 
-    const types=wheelMode==='houses'?LINK_ORDER:LINK_ORDER.filter(t=>t!=='same');
-    const legend=`<div class="wheel-legend">${types.map(t=>`<span><i style="background:${LINK_STYLE[t].color}"></i>${T(LINK_STYLE[t].key)}</span>`).join('')}</div>`;
+    const legend=`<div class="wheel-legend">${WHEEL_TYPES[wheelMode].map(t=>`<span><i style="background:${LINK_STYLE[t].color}"></i>${T(LINK_STYLE[t].key)}</span>`).join('')}</div>`;
 
     let detail;
     if(selIdx===-1){
       const top=d.nodes.map((node,i)=>({node,n:count[i]})).filter(x=>x.n).sort((x,y)=>y.n-x.n).slice(0,3);
-      detail=`<div class="wheel-hint">${T(wheelMode==='houses'?'pg.wheel_hint_houses':'pg.wheel_hint_planets')}</div>
+      detail=`<div class="wheel-hint">${T('pg.wheel_hint_'+wheelMode)}</div>
         ${top.length?`<div class="wheel-most">${T('pg.wheel_most')} ${top.map(x=>`<button type="button" class="wheel-jump" data-wheel-node="${x.node.id}">${x.node.name} (${x.n})</button>`).join(' ')}</div>`:''}`;
     } else {
       const node=d.nodes[selIdx];
@@ -2178,7 +2231,16 @@ function createChart(root,opts){
       detail=`<div class="wheel-title">${node.title}</div>${body}`;
     }
 
-    const chips=d.nodes.map((node,i)=>`<button type="button" class="wheel-chip${i===selIdx?' on':''}" data-wheel-node="${node.id}" aria-pressed="${i===selIdx}"${node.placed?'':' disabled'}>${node.chip}<span class="wheel-count">${count[i]}</span></button>`).join('');
+    const chip=(i)=>{
+      const node=d.nodes[i];
+      return `<button type="button" class="wheel-chip${i===selIdx?' on':''}" data-wheel-node="${node.id}" aria-pressed="${i===selIdx}"${node.placed?'':' disabled'}>${node.chip}<span class="wheel-count">${count[i]}</span></button>`;
+    };
+    // The mix view lists its grahas first, then breaks to a row of houses.
+    const inner=d.nodes.map((node,i)=>node.ring===1?i:-1).filter(i=>i!==-1);
+    const outer=d.nodes.map((node,i)=>node.ring===0?i:-1).filter(i=>i!==-1);
+    const chips=inner.length
+      ?inner.map(chip).join('')+'<span class="wheel-chip-break"></span>'+outer.map(chip).join('')
+      :outer.map(chip).join('');
 
     return `${open}
       <div class="wheel-wrap">
@@ -2186,7 +2248,7 @@ function createChart(root,opts){
         <div class="wheel-detail" aria-live="polite">${detail}</div>
       </div>
       <div class="wheel-chips">${chips}</div>
-      <div class="conn-note">${T(wheelMode==='houses'?'pg.wheel_note_houses':'pg.wheel_note_planets')}</div></div>`;
+      <div class="conn-note">${T('pg.wheel_note_'+wheelMode)}</div></div>`;
   }
 
   // One listener on the tab (its HTML is rebuilt on every update) handles
@@ -2207,8 +2269,9 @@ function createChart(root,opts){
   function buildConnectionsTab(){
     const wheel=buildWheelSection();
     const ascSIdx=findPlanetSignIdx('Asc');
-    // House mode's wheel already asks for the Ascendant.
-    if(ascSIdx===-1) return wheelMode==='houses'?wheel:wheel+`<div class="no-data" style="grid-column:1/-1">${T('pg.conn_need_asc')}</div>`;
+    // Only the planets view works without houses; the others already ask
+    // for the Ascendant inside the wheel.
+    if(ascSIdx===-1) return wheelMode==='planets'?wheel+`<div class="no-data" style="grid-column:1/-1">${T('pg.conn_need_asc')}</div>`:wheel;
     const sunSIdx=findPlanetSignIdx('Sun');
     const th=(key)=>`<th style="color:rgba(255,170,102,.7)">${T(key)}</th>`;
     const list=(items)=>items.length?`<ul class="conn-links">${items.map(x=>`<li>${x}</li>`).join('')}</ul>`:'—';
@@ -2236,6 +2299,22 @@ function createChart(root,opts){
       ${d.offChart.length?`<div class="conn-note">${T('pg.conn_off_chart',{planets:d.offChart.map(PN).join(', ')})}</div>`:''}
       <div class="conn-note">${T('pg.conn_2911_note')}</div></div>`;
 
+    // ── DHARMA KARMADHIPATI YOGA (9-10) ──
+    // The 9th (dharma) and 10th (karma) lords tied together, by the same
+    // checks as 2-9-11 - so one planet ruling both counts too.
+    const dk9=houseInfo(ascSIdx,9),dk10=houseInfo(ascSIdx,10);
+    const dkLinks=linkHouses(dk9,dk10,sunSIdx).sort((x,y)=>LINK_ORDER.indexOf(x.type)-LINK_ORDER.indexOf(y.type));
+    const dkChips=[dk9,dk10].map(x=>`<span class="conn-house"><b>${ORD(x.h)}</b> ${SN(SIGNS[x.sIdx])} · ${T('pg.conn_lord')} ${PN(x.lord)}</span>`).join('');
+    const dkOff=[...new Set([dk9,dk10].filter(x=>x.lordSIdx===-1).map(x=>x.lord))];
+    const dharma=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">☸ ${T('pg.dk_title')}</h3>
+      <div class="conn-houses">${dkChips}</div>
+      ${dkLinks.length
+        ?`<ul class="link-list">${dkLinks.map(l=>`<li><span class="lt-dot" style="background:${LINK_STYLE[l.type].color}"></span>${l.text}</li>`).join('')}</ul>`
+        :`<div class="no-data">${T('pg.dk_none')}</div>`}
+      <div class="conn-verdict${dkLinks.length?' on':''}">${dkLinks.length?T('pg.dk_yes',{type:T(LINK_STYLE[dkLinks[0].type].key)}):T('pg.dk_no')}</div>
+      ${dkOff.length?`<div class="conn-note">${T('pg.conn_off_chart',{planets:dkOff.map(PN).join(', ')})}</div>`:''}
+      <div class="conn-note">${T('pg.dk_note')}</div></div>`;
+
     // ── SUBATHUVAM IN 8th / 12th ──
     const s=computeSubha(ascSIdx,sunSIdx);
     const blessed=s.houses.filter(x=>x.from.length);
@@ -2254,7 +2333,7 @@ function createChart(root,opts){
       ${moonLine?`<div class="conn-note">☽ ${moonLine}</div>`:''}
       <div class="conn-note">${T('pg.conn_subha_note')}</div></div>`;
 
-    return wheel+dhana+subha;
+    return wheel+dhana+dharma+subha;
   }
 
 
