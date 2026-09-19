@@ -1,7 +1,12 @@
 Flask
 gunicorn
-kerykeion
-jyotichart
+# kerykeion 6 removed AstrologicalSubject (app.py builds subjects with it) and
+# also changed the defaults behind the numbers - active points, aspect orbs.
+# Moving up means porting to AstrologicalSubjectFactory *and* re-checking the
+# chart output, so pin to the 5.x line the app is written and tested against.
+kerykeion<6
+# Same guard on the chart renderer: a new major would land unreviewed.
+jyotichart<7
 geopy
 sqlalchemy
 psycopg2-binary
