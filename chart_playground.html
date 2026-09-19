@@ -2246,9 +2246,16 @@ function createChart(root,opts){
     // mix view) run straight. The selected node's lines are drawn last so
     // they sit on top of the dimmed rest.
     const bow=wheelMode==='mix'?1:.35;
-    const lines=d.pairs.map(p=>{
+    // Where each line meets its two nodes: the control point sets the angle
+    // it arrives from.
+    const ends=d.pairs.map(p=>{
       const A=pos[p.a],B=pos[p.b];
       const qx=C+((A.x+B.x)/2-C)*bow,qy=C+((A.y+B.y)/2-C)*bow;
+      return {qx,qy,a:Math.atan2(A.y-qy,A.x-qx),b:Math.atan2(B.y-qy,B.x-qx)};
+    });
+    const lines=d.pairs.map((p,pi)=>{
+      const A=pos[p.a],B=pos[p.b];
+      const {qx,qy}=ends[pi];
       const lit=selIdx===-1||p.a===selIdx||p.b===selIdx;
       const width=Math.min(1.6+(p.links.length-1)*1.2,5.5);
       // With nothing picked, aspect-only pairs - most of them - stay faint so
@@ -2256,14 +2263,19 @@ function createChart(root,opts){
       const op=selIdx===-1?(p.type==='aspect'?.2:.85):lit?.95:.06;
       // Arrowheads: one per direction the links run. A mutual tie (mutual
       // aspect, exchange) gets both; a conjunction or shared lord gets none.
-      const dirs=new Set(p.links.flatMap(l=>l.dir==='both'?['ab','ba']:l.dir?[l.dir]:[]));
+      // Only the picked node's lines carry heads. Drawn on every line the
+      // overview turns into a pincushion, and direction is what you want
+      // when reading one node anyway.
+      const dirs=new Set(lit&&selIdx!==-1?p.links.flatMap(l=>l.dir==='both'?['ab','ba']:l.dir?[l.dir]:[]):[]);
       const toB=dirs.has('ab'),toA=dirs.has('ba');
-      // Stop short of the node's rim, or the head hides under the circle.
-      const trim=(P,rad)=>{
-        const dx=P.x-qx,dy=P.y-qy,len=Math.hypot(dx,dy)||1,back=rad+(toA||toB?8:2);
-        return {x:P.x-dx/len*back,y:P.y-dy/len*back};
+      // Stop well short of the node's rim: the head needs to clear the
+      // circle, and the extra distance fans arrowheads arriving at slightly
+      // different angles apart instead of piling them on one spot.
+      const trim=(P,rad,side)=>{
+        const th=ends[pi][side],back=rad+(toA||toB?12:3);
+        return {x:P.x-back*Math.cos(th),y:P.y-back*Math.sin(th)};
       };
-      const A2=trim(A,NODE_R[d.nodes[p.a].ring]),B2=trim(B,NODE_R[d.nodes[p.b].ring]);
+      const A2=trim(A,NODE_R[d.nodes[p.a].ring],'a'),B2=trim(B,NODE_R[d.nodes[p.b].ring],'b');
       const marker=`${toB?` marker-end="url(#${wheelUid}-${p.type})"`:''}${toA?` marker-start="url(#${wheelUid}-${p.type})"`:''}`;
       return {lit:selIdx!==-1&&lit,svg:`<path d="M${f(A2.x)} ${f(A2.y)} Q${f(qx)} ${f(qy)} ${f(B2.x)} ${f(B2.y)}" fill="none" stroke="${LINK_STYLE[p.type].color}" stroke-width="${width}" stroke-linecap="round" opacity="${op}"${marker}/>`};
     }).sort((x,y)=>x.lit-y.lit).map(l=>l.svg).join('');
@@ -2271,7 +2283,7 @@ function createChart(root,opts){
     // One arrowhead per link colour in play. Ids carry the chart's own
     // prefix, so the two charts in compare mode never share markers.
     const defs=`<defs>${[...new Set(d.pairs.map(p=>p.type))].map(t=>
-      `<marker id="${wheelUid}-${t}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${LINK_STYLE[t].color}"/></marker>`).join('')}</defs>`;
+      `<marker id="${wheelUid}-${t}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${LINK_STYLE[t].color}"/></marker>`).join('')}</defs>`;
 
     const nodesSvg=d.nodes.map((node,i)=>{
       const {a,x,y}=pos[i];
