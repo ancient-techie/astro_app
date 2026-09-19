@@ -203,6 +203,7 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 .wheel-centre-c{font-size:9px;fill:rgba(240,225,200,.55);pointer-events:none}
 .wheel-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:6px;font-size:9.5px;color:rgba(240,225,200,.7)}
 .wheel-legend i{display:inline-block;width:16px;height:3px;margin-right:4px;border-radius:2px;vertical-align:middle}
+.wheel-arrows{flex-basis:100%;text-align:center;color:rgba(240,225,200,.5)}
 .wheel-detail{flex:1 1 240px;min-width:0;font-size:11px;color:rgba(240,230,210,.9)}
 .wheel-title{margin-bottom:6px;font-family:'Cinzel',serif;font-size:12px;font-weight:700;color:#ffcc88}
 .wheel-hint{margin-bottom:8px;color:rgba(240,225,200,.7)}
@@ -211,8 +212,16 @@ svg.rays-overlay{position:absolute;pointer-events:none;z-index:6;top:0;left:0;wi
 .wheel-partner ul,.link-list{margin:3px 0 0;padding:0;list-style:none}
 .wheel-partner li,.link-list li{position:relative;padding:2px 0 2px 14px;line-height:1.45}
 .link-list{font-size:10.5px;color:rgba(240,230,210,.9)}
+.dk-rule{display:flex;gap:8px;align-items:flex-start;margin-top:5px;padding:6px 10px;border-radius:6px;border-left:3px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);font-size:10.5px}
+.dk-rule b{font-family:'Cinzel',serif;font-size:10px;color:rgba(240,225,200,.75)}
+.dk-rule.ok{border-left-color:#44dd88}
+.dk-rule.ok b{color:#ffcc88}
+.dk-mark{min-width:12px;font-weight:700;color:rgba(255,120,100,.7)}
+.dk-rule.ok .dk-mark{color:#44ff88}
+.dk-detail{margin-top:2px;color:rgba(240,230,210,.85)}
 .wheel-label-sm{font-size:8.5px}
 .wheel-chip-break{flex-basis:100%;height:0}
+.wheel-node-note{margin-top:10px;padding:8px 10px;border-radius:6px;border-left:3px solid rgba(255,170,102,.5);background:rgba(255,255,255,.03);color:rgba(240,230,210,.8);line-height:1.8}
 .lt-dot{position:absolute;left:0;top:.6em;width:8px;height:8px;border-radius:50%}
 .wheel-jump{padding:2px 8px;border:1px solid rgba(255,170,102,.35);border-radius:10px;background:rgba(255,170,102,.08);color:#ffcc88;font-family:'Cinzel',serif;font-size:10px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .wheel-jump:hover{background:rgba(255,170,102,.2)}
@@ -867,8 +876,13 @@ const LINK_STYLE={
   in:      {color:'#ff9955',key:'pg.lt_in'},
   rules:   {color:'#ff77aa',key:'pg.lt_rules'},
   aspect:  {color:'#6fb6ff',key:'pg.lt_aspect'},
+  // Rahu/Ketu, through a planet sitting with or aspecting them
+  via:     {color:'#44d4c8',key:'pg.lt_via'},
 };
 const LINK_ORDER=Object.keys(LINK_STYLE);
+// Arrowhead marker ids have to be unique per chart - compare mode puts two
+// wheels in one document.
+let wheelUidSeq=0;
 
 // ── ASPECT RULES ─────────────────────────────────
 function getAspectOffsets(planet,signIdx,sunSIdx){
@@ -1987,6 +2001,9 @@ function createChart(root,opts){
   // both, sign exchange, one lord sitting in or aspecting the other's house,
   // one lord aspecting the other, or the lords conjunct. Each link is
   // {type, text}; `type` keys LINK_STYLE, which colours the wheel.
+  // `dir` is which way the wheel draws its arrowhead: 'ab' from the first
+  // argument to the second, 'ba' the other way, and none at all for a
+  // symmetric tie (conjunction, one lord for both houses).
   function linkHouses(A,B,sunSIdx){
     const links=[];
     if(A.lord===B.lord){
@@ -1995,17 +2012,18 @@ function createChart(root,opts){
     }
     const lordOf=(X)=>({planet:PN(X.lord),a:ORD(X.h)});
     const exchange=A.lordSIdx===B.sIdx&&B.lordSIdx===A.sIdx;
-    if(exchange) links.push({type:'exchange',text:T('pg.link_exchange',{p1:PN(A.lord),a:ORD(A.h),p2:PN(B.lord),b:ORD(B.h)})});
-    [[A,B],[B,A]].forEach(([X,Y])=>{
+    if(exchange) links.push({type:'exchange',dir:'both',text:T('pg.link_exchange',{p1:PN(A.lord),a:ORD(A.h),p2:PN(B.lord),b:ORD(B.h)})});
+    [[A,B],[B,A]].forEach(([X,Y],i)=>{
+      const dir=i===0?'ab':'ba';
       if(X.lordSIdx===-1) return;
       // An exchange already says each lord sits in the other's house.
-      if(!exchange&&X.lordSIdx===Y.sIdx) links.push({type:'in',text:T('pg.link_in',{...lordOf(X),b:ORD(Y.h)})});
+      if(!exchange&&X.lordSIdx===Y.sIdx) links.push({type:'in',dir,text:T('pg.link_in',{...lordOf(X),b:ORD(Y.h)})});
       const asp=aspectsFrom(X.lord,X.lordSIdx,sunSIdx);
       const onHouse=asp.find(s=>s.sIdx===Y.sIdx);
-      if(onHouse) links.push({type:'aspect',text:T('pg.link_aspect_house',{...lordOf(X),b:ORD(Y.h),n:ORD(onHouse.off)})});
+      if(onHouse) links.push({type:'aspect',dir,text:T('pg.link_aspect_house',{...lordOf(X),b:ORD(Y.h),n:ORD(onHouse.off)})});
       // Y's lord sitting at home is already covered by the aspect on Y's house.
       const onLord=Y.lordSIdx!==-1&&Y.lordSIdx!==Y.sIdx&&asp.find(s=>s.sIdx===Y.lordSIdx);
-      if(onLord) links.push({type:'aspect',text:T('pg.link_aspect_lord',{...lordOf(X),other:PN(Y.lord),b:ORD(Y.h),n:ORD(onLord.off)})});
+      if(onLord) links.push({type:'aspect',dir,text:T('pg.link_aspect_lord',{...lordOf(X),other:PN(Y.lord),b:ORD(Y.h),n:ORD(onLord.off)})});
     });
     if(A.lordSIdx!==-1&&A.lordSIdx===B.lordSIdx)
       links.push({type:'conj',text:T('pg.link_conj',{p1:PN(A.lord),a:ORD(A.h),p2:PN(B.lord),b:ORD(B.h),sign:SN(SIGNS[A.lordSIdx])})});
@@ -2018,12 +2036,13 @@ function createChart(root,opts){
     const links=[];
     if(P.sIdx===Q.sIdx) links.push({type:'conj',text:T('pg.plink_conj',{p:PN(P.code),q:PN(Q.code),sign:SN(SIGNS[P.sIdx])})});
     const exchange=SIGN_LORD[SIGNS[P.sIdx]]===Q.code&&SIGN_LORD[SIGNS[Q.sIdx]]===P.code;
-    if(exchange) links.push({type:'exchange',text:T('pg.plink_exchange',{p:PN(P.code),q:PN(Q.code)})});
-    [[P,Q],[Q,P]].forEach(([X,Y])=>{
+    if(exchange) links.push({type:'exchange',dir:'both',text:T('pg.plink_exchange',{p:PN(P.code),q:PN(Q.code)})});
+    [[P,Q],[Q,P]].forEach(([X,Y],i)=>{
+      const dir=i===0?'ab':'ba';
       if(!exchange&&SIGN_LORD[SIGNS[X.sIdx]]===Y.code)
-        links.push({type:'in',text:T('pg.plink_in',{p:PN(X.code),q:PN(Y.code),sign:SN(SIGNS[X.sIdx])})});
+        links.push({type:'in',dir,text:T('pg.plink_in',{p:PN(X.code),q:PN(Y.code),sign:SN(SIGNS[X.sIdx])})});
       const asp=aspectsFrom(X.code,X.sIdx,sunSIdx).find(s=>s.sIdx===Y.sIdx);
-      if(asp) links.push({type:'aspect',text:T('pg.plink_aspect',{p:PN(X.code),q:PN(Y.code),n:ORD(asp.off)})});
+      if(asp) links.push({type:'aspect',dir,text:T('pg.plink_aspect',{p:PN(X.code),q:PN(Y.code),n:ORD(asp.off)})});
     });
     return links;
   }
@@ -2035,6 +2054,38 @@ function createChart(root,opts){
     const pairs=[[2,9],[2,11],[9,11]].map(([a,b])=>({a,b,links:linkHouses(info[a],info[b],sunSIdx).map(l=>l.text)}));
     const offChart=[...new Set(DHANA_HOUSES.filter(h=>info[h].lordSIdx===-1).map(h=>info[h].lord))];
     return {info,pairs,offChart};
+  }
+
+  // Dharma Karmadhipati Yoga, judged by four rules only - not the wider
+  // linkHouses checks. L9/L10 are houseInfo() results for the 9th and 10th.
+  //   conj     - the two lords in one sign;
+  //   mutual   - each lord aspects the other (one-way doesn't count);
+  //   exchange - parivartana: each lord in the other's sign;
+  //   in       - one lord in the other's house: a milder form.
+  // Returns {sameLord} when one planet rules both, which none of the four
+  // rules can describe; otherwise {rules:[{key, strong, ok, text}]}.
+  function dharmaKarmaRules(L9,L10,sunSIdx){
+    if(L9.lord===L10.lord) return {sameLord:L9.lord};
+    const both=L9.lordSIdx!==-1&&L10.lordSIdx!==-1;
+    const p9=PN(L9.lord),p10=PN(L10.lord),a=ORD(9),b=ORD(10);
+    const conj=both&&L9.lordSIdx===L10.lordSIdx;
+    const asp9=both&&aspectsFrom(L9.lord,L9.lordSIdx,sunSIdx).find(s=>s.sIdx===L10.lordSIdx);
+    const asp10=both&&aspectsFrom(L10.lord,L10.lordSIdx,sunSIdx).find(s=>s.sIdx===L9.lordSIdx);
+    const mutual=!!(asp9&&asp10);
+    const exchange=both&&L9.lordSIdx===L10.sIdx&&L10.lordSIdx===L9.sIdx;
+    const in9=L9.lordSIdx===L10.sIdx,in10=L10.lordSIdx===L9.sIdx;   // 9th lord in the 10th; 10th lord in the 9th
+    const inText=[in9&&T('pg.link_in',{planet:p9,a,b}),in10&&T('pg.link_in',{planet:p10,a:b,b:a})].filter(Boolean).join('; ');
+    return {rules:[
+      {key:'conj',strong:true,ok:conj,
+        text:conj?T('pg.link_conj',{p1:p9,a,p2:p10,b,sign:SN(SIGNS[L9.lordSIdx])}):''},
+      // A one-way aspect is shown as a near miss so it is clear why it fails.
+      {key:'mutual',strong:true,ok:mutual,
+        text:mutual?T('pg.dk_mutual',{p1:p9,p2:p10,n1:ORD(asp9.off),n2:ORD(asp10.off)})
+          :asp9?T('pg.dk_oneway',{p1:p9,p2:p10}):asp10?T('pg.dk_oneway',{p1:p10,p2:p9}):''},
+      {key:'exchange',strong:true,ok:exchange,
+        text:exchange?T('pg.link_exchange',{p1:p9,a,p2:p10,b}):''},
+      {key:'in',strong:false,ok:in9||in10,text:inText},
+    ]};
   }
 
   // Subathuvam on the 8th and 12th: Jupiter, Venus, or a qualifying Moon (see
@@ -2074,10 +2125,11 @@ function createChart(root,opts){
   const WHEEL_TYPES={
     houses:['exchange','same','conj','in','aspect'],
     planets:['exchange','conj','in','aspect'],
-    mix:['in','rules','aspect'],
+    mix:['in','rules','aspect','via'],
   };
   let wheelMode='houses';
   let wheelSel=null;        // selected node id (house number or planet code, as a string)
+  const wheelUid='wheel'+(++wheelUidSeq);
 
   // Nodes carry `ring`: 0 is the outer circle, 1 the inner one (mix view).
   function houseNodes(ascSIdx){
@@ -2099,15 +2151,34 @@ function createChart(root,opts){
   }
 
   // How a placed graha touches house H: sitting in it, ruling it, or
-  // aspecting it. Rahu/Ketu rule nothing and cast no aspect here, so only
-  // placement counts for them.
+  // aspecting it. Rahu/Ketu rule nothing and cast no aspect, so they take the
+  // house they sit in plus the houses of the planets acting on them - their
+  // dispositor (a node in Capricorn takes Saturn's Aquarius house too),
+  // whoever sits with them, and whoever aspects them. Those arrows point
+  // house -> node, since the pull runs from that house's lord.
   function linkPlanetHouse(P,H,sunSIdx){
     const links=[];
     const args={p:PN(P.code),h:ORD(H.h)};
-    if(P.sIdx===H.sIdx) links.push({type:'in',text:T('pg.hlink_in',args)});
-    if(H.lord===P.code) links.push({type:'rules',text:T('pg.hlink_rules',args)});
+    // Every tie here runs planet -> house, so they all point that way.
+    if(P.sIdx===H.sIdx) links.push({type:'in',dir:'ab',text:T('pg.hlink_in',args)});
+    if(P.code==='Rahu'||P.code==='Ketu'){
+      if(H.sIdx===P.sIdx) return links;   // its own house is the placement above
+      // The sign it sits in has a lord; that lord's other house counts too.
+      const disp=SIGN_LORD[SIGNS[P.sIdx]];
+      if(H.lord===disp) links.push({type:'via',dir:'ba',text:T('pg.hlink_dispositor',{...args,q:PN(disp)})});
+      const lordSIdx=findPlanetSignIdx(H.lord);
+      if(lordSIdx===-1) return links;
+      if(lordSIdx===P.sIdx){
+        links.push({type:'via',dir:'ba',text:T('pg.hlink_conj_node',{...args,q:PN(H.lord)})});
+      } else {
+        const onNode=aspectsFrom(H.lord,lordSIdx,sunSIdx).find(s=>s.sIdx===P.sIdx);
+        if(onNode) links.push({type:'via',dir:'ba',text:T('pg.hlink_aspected',{...args,q:PN(H.lord),n:ORD(onNode.off)})});
+      }
+      return links;
+    }
+    if(H.lord===P.code) links.push({type:'rules',dir:'ab',text:T('pg.hlink_rules',args)});
     const asp=aspectsFrom(P.code,P.sIdx,sunSIdx).find(s=>s.sIdx===H.sIdx);
-    if(asp) links.push({type:'aspect',text:T('pg.hlink_aspect',{...args,n:ORD(asp.off)})});
+    if(asp) links.push({type:'aspect',dir:'ab',text:T('pg.hlink_aspect',{...args,n:ORD(asp.off)})});
     return links;
   }
 
@@ -2183,8 +2254,24 @@ function createChart(root,opts){
       // With nothing picked, aspect-only pairs - most of them - stay faint so
       // the stronger links read at a glance.
       const op=selIdx===-1?(p.type==='aspect'?.2:.85):lit?.95:.06;
-      return {lit:selIdx!==-1&&lit,svg:`<path d="M${f(A.x)} ${f(A.y)} Q${f(qx)} ${f(qy)} ${f(B.x)} ${f(B.y)}" fill="none" stroke="${LINK_STYLE[p.type].color}" stroke-width="${width}" stroke-linecap="round" opacity="${op}"/>`};
+      // Arrowheads: one per direction the links run. A mutual tie (mutual
+      // aspect, exchange) gets both; a conjunction or shared lord gets none.
+      const dirs=new Set(p.links.flatMap(l=>l.dir==='both'?['ab','ba']:l.dir?[l.dir]:[]));
+      const toB=dirs.has('ab'),toA=dirs.has('ba');
+      // Stop short of the node's rim, or the head hides under the circle.
+      const trim=(P,rad)=>{
+        const dx=P.x-qx,dy=P.y-qy,len=Math.hypot(dx,dy)||1,back=rad+(toA||toB?8:2);
+        return {x:P.x-dx/len*back,y:P.y-dy/len*back};
+      };
+      const A2=trim(A,NODE_R[d.nodes[p.a].ring]),B2=trim(B,NODE_R[d.nodes[p.b].ring]);
+      const marker=`${toB?` marker-end="url(#${wheelUid}-${p.type})"`:''}${toA?` marker-start="url(#${wheelUid}-${p.type})"`:''}`;
+      return {lit:selIdx!==-1&&lit,svg:`<path d="M${f(A2.x)} ${f(A2.y)} Q${f(qx)} ${f(qy)} ${f(B2.x)} ${f(B2.y)}" fill="none" stroke="${LINK_STYLE[p.type].color}" stroke-width="${width}" stroke-linecap="round" opacity="${op}"${marker}/>`};
     }).sort((x,y)=>x.lit-y.lit).map(l=>l.svg).join('');
+
+    // One arrowhead per link colour in play. Ids carry the chart's own
+    // prefix, so the two charts in compare mode never share markers.
+    const defs=`<defs>${[...new Set(d.pairs.map(p=>p.type))].map(t=>
+      `<marker id="${wheelUid}-${t}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${LINK_STYLE[t].color}"/></marker>`).join('')}</defs>`;
 
     const nodesSvg=d.nodes.map((node,i)=>{
       const {a,x,y}=pos[i];
@@ -2208,11 +2295,12 @@ function createChart(root,opts){
       ?[d.pairs.length,T('pg.wheel_pairs')]
       :[count[selIdx],T('pg.wheel_partners')];
     const svg=`<svg class="wheel-svg" viewBox="0 0 320 320" role="img" aria-label="${T('pg.wheel')}">
-      ${lines}${nodesSvg}
+      ${defs}${lines}${nodesSvg}
       <text x="${C}" y="${C-4}" text-anchor="middle" class="wheel-centre-n">${centre[0]}</text>
       <text x="${C}" y="${C+14}" text-anchor="middle" class="wheel-centre-c">${centre[1]}</text></svg>`;
 
-    const legend=`<div class="wheel-legend">${WHEEL_TYPES[wheelMode].map(t=>`<span><i style="background:${LINK_STYLE[t].color}"></i>${T(LINK_STYLE[t].key)}</span>`).join('')}</div>`;
+    const arrowNote=`<span class="wheel-arrows">${T('pg.wheel_arrows')}</span>`;
+    const legend=`<div class="wheel-legend">${arrowNote}${WHEEL_TYPES[wheelMode].map(t=>`<span><i style="background:${LINK_STYLE[t].color}"></i>${T(LINK_STYLE[t].key)}</span>`).join('')}</div>`;
 
     let detail;
     if(selIdx===-1){
@@ -2228,7 +2316,13 @@ function createChart(root,opts){
             <ul>${m.links.map(l=>`<li><span class="lt-dot" style="background:${LINK_STYLE[l.type].color}"></span>${l.text}</li>`).join('')}</ul>
           </div>`).join('')
         :`<div class="no-data">${T('pg.wheel_none')}</div>`;
-      detail=`<div class="wheel-title">${node.title}</div>${body}`;
+      // Rahu/Ketu touch only their own house here; their real ties are to
+      // planets, one tap away in the planets view.
+      const nodeNote=wheelMode==='mix'&&(node.id==='Rahu'||node.id==='Ketu')
+        ?`<div class="wheel-node-note">${T('pg.wheel_node_note',{p:PN(node.id)})}
+            <button type="button" class="wheel-jump" data-wheel-mode="planets" data-wheel-node="${node.id}">${T('pg.wheel_show_planets')}</button></div>`
+        :'';
+      detail=`<div class="wheel-title">${node.title}</div>${body}${nodeNote}`;
     }
 
     const chip=(i)=>{
@@ -2256,7 +2350,10 @@ function createChart(root,opts){
   function onConnectionsClick(e){
     const mode=e.target.closest('[data-wheel-mode]');
     if(mode){
-      if(mode.dataset.wheelMode!==wheelMode){wheelMode=mode.dataset.wheelMode;wheelSel=null;renderConnections();}
+      // A mode button can carry a node to select on arrival (the Rahu/Ketu
+      // jump to the planets view); a plain one starts with nothing picked.
+      const target=mode.dataset.wheelNode||null;
+      if(mode.dataset.wheelMode!==wheelMode||target){wheelMode=mode.dataset.wheelMode;wheelSel=target;renderConnections();}
       return;
     }
     const node=e.target.closest('[data-wheel-node]');
@@ -2300,18 +2397,32 @@ function createChart(root,opts){
       <div class="conn-note">${T('pg.conn_2911_note')}</div></div>`;
 
     // ── DHARMA KARMADHIPATI YOGA (9-10) ──
-    // The 9th (dharma) and 10th (karma) lords tied together, by the same
-    // checks as 2-9-11 - so one planet ruling both counts too.
+    // The 9th (dharma) and 10th (karma) lords, as a checklist of the four
+    // rules in dharmaKarmaRules.
     const dk9=houseInfo(ascSIdx,9),dk10=houseInfo(ascSIdx,10);
-    const dkLinks=linkHouses(dk9,dk10,sunSIdx).sort((x,y)=>LINK_ORDER.indexOf(x.type)-LINK_ORDER.indexOf(y.type));
+    const dk=dharmaKarmaRules(dk9,dk10,sunSIdx);
     const dkChips=[dk9,dk10].map(x=>`<span class="conn-house"><b>${ORD(x.h)}</b> ${SN(SIGNS[x.sIdx])} · ${T('pg.conn_lord')} ${PN(x.lord)}</span>`).join('');
     const dkOff=[...new Set([dk9,dk10].filter(x=>x.lordSIdx===-1).map(x=>x.lord))];
+    let dkBody,dkVerdict,dkOn;
+    if(dk.sameLord){
+      dkBody='';
+      dkVerdict=T('pg.dk_same_lord',{planet:PN(dk.sameLord)});
+      dkOn=false;
+    } else {
+      dkBody=dk.rules.map(r=>`<div class="dk-rule${r.ok?' ok':''}">
+          <span class="dk-mark">${r.ok?'✓':'✗'}</span>
+          <div><b>${T('pg.dk_r_'+r.key)}</b>${r.text?`<div class="dk-detail">${r.text}</div>`:''}</div>
+        </div>`).join('');
+      const strong=dk.rules.filter(r=>r.strong&&r.ok);
+      const mild=dk.rules.find(r=>r.key==='in').ok;
+      dkVerdict=strong.length?T('pg.dk_yes',{rules:strong.map(r=>T('pg.dk_r_'+r.key)).join(', ')})
+        :mild?T('pg.dk_mild'):T('pg.dk_no');
+      dkOn=strong.length>0||mild;
+    }
     const dharma=`<div class="dash-section" style="grid-column:1/-1"><h3 class="conn-h3">☸ ${T('pg.dk_title')}</h3>
       <div class="conn-houses">${dkChips}</div>
-      ${dkLinks.length
-        ?`<ul class="link-list">${dkLinks.map(l=>`<li><span class="lt-dot" style="background:${LINK_STYLE[l.type].color}"></span>${l.text}</li>`).join('')}</ul>`
-        :`<div class="no-data">${T('pg.dk_none')}</div>`}
-      <div class="conn-verdict${dkLinks.length?' on':''}">${dkLinks.length?T('pg.dk_yes',{type:T(LINK_STYLE[dkLinks[0].type].key)}):T('pg.dk_no')}</div>
+      ${dkBody}
+      <div class="conn-verdict${dkOn?' on':''}">${dkVerdict}</div>
       ${dkOff.length?`<div class="conn-note">${T('pg.conn_off_chart',{planets:dkOff.map(PN).join(', ')})}</div>`:''}
       <div class="conn-note">${T('pg.dk_note')}</div></div>`;
 
