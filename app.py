@@ -728,10 +728,14 @@ def _localize_chart_svg(svg_markup, lang):
     if lang == i18n.DEFAULT_LANGUAGE:
         return svg_markup
 
+    word = i18n.t("chart.word", lang)
     replacements = {
         "Asc": i18n.term("planet_abbr", "Ascendant", lang),
-        "Chart : Lagna": f"{i18n.t('chart.word', lang)} : {i18n.t('chart.rashi', lang)}",
-        "Chart : Navamsa": f"{i18n.t('chart.word', lang)} : {i18n.t('chart.navamsa', lang)}",
+        "Chart : Lagna": f"{word} : {i18n.t('chart.rashi', lang)}",
+        "Chart : Navamsa": f"{word} : {i18n.t('chart.navamsa', lang)}",
+        # The Gochar popup's own pair of charts.
+        "Chart : Chandra": f"{word} : {i18n.t('chart.chandra', lang)}",
+        "Chart : Gochar": f"{word} : {i18n.t('chart.gochar', lang)}",
     }
 
     def replace(match):
@@ -758,6 +762,40 @@ def _read_chart_svg(output_dir, filename):
     return raw_bytes.decode("utf-8", errors="replace")
 
 
+def _add_chart_planets(chart_obj, subject, reference_abbr, lang):
+    """Place Sun..Saturn plus Rahu/Ketu on a jyotichart chart object.
+
+    `reference_abbr` is the sign that counts as house 1 - the Ascendant's
+    sign for an ordinary Rashi chart, the Moon's sign for a Chandra Lagna
+    one. Glyphs are drawn in `lang`, with the retrograde marker appended
+    straight to the glyph (e.g. "Ma(R)" / "\u0b9a\u0bc6(\u0bb5)").
+
+    Shared by the natal Rashi chart and the Gochar (transit) overlay, which
+    place the same nine bodies and differ only in which subject and which
+    reference sign they are handed.
+    """
+    retro_suffix = i18n.RETROGRADE_SUFFIX.get(lang, i18n.RETROGRADE_SUFFIX["en"])
+
+    for attr, (planet_const, symbol) in PLANETS.items():
+        planet_data = getattr(subject, attr)
+        sign_abbr = planet_data["sign"]
+        house_num = house_from_signs(sign_abbr, reference_abbr)
+        is_retro = planet_data.get("retrograde", False)
+        glyph = i18n.planet_abbr(symbol_to_label(symbol), lang)
+        display_symbol = f"{glyph}{retro_suffix}" if is_retro else glyph
+        chart_obj.add_planet(planet_const, display_symbol, house_num, retrograde=is_retro)
+
+    rahu_data = get_rahu_data(subject)
+    rahu_sign = rahu_data["sign"]
+    rahu_house = house_from_signs(rahu_sign, reference_abbr)
+    chart_obj.add_planet(chart.RAHU, i18n.planet_abbr("Rahu", lang), rahu_house, retrograde=True)
+
+    rahu_idx = SIGN_ORDER.index(rahu_sign)
+    ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
+    ketu_house = house_from_signs(ketu_sign, reference_abbr)
+    chart_obj.add_planet(chart.KETU, i18n.planet_abbr("Ketu", lang), ketu_house, retrograde=True)
+
+
 def render_chart_svg(subject, style, output_dir, lang=i18n.DEFAULT_LANGUAGE):
     """Build a South/North Indian chart with jyotichart and return the raw SVG markup.
 
@@ -768,30 +806,12 @@ def render_chart_svg(subject, style, output_dir, lang=i18n.DEFAULT_LANGUAGE):
     """
     ascendant_abbr = subject.first_house["sign"]
     ascendant_full = SIGN_NAME_MAP[ascendant_abbr]
-    retro_suffix = i18n.RETROGRADE_SUFFIX.get(lang, i18n.RETROGRADE_SUFFIX["en"])
 
     ChartClass = chart.SouthChart if style == "south" else chart.NorthChart
     mychart = ChartClass("Lagna", subject.name, IsFullChart=True)
     mychart.set_ascendantsign(ascendant_full)
 
-    for attr, (planet_const, symbol) in PLANETS.items():
-        planet_data = getattr(subject, attr)
-        sign_abbr = planet_data["sign"]
-        house_num = house_from_signs(sign_abbr, ascendant_abbr)
-        is_retro = planet_data.get("retrograde", False)
-        glyph = i18n.planet_abbr(symbol_to_label(symbol), lang)
-        display_symbol = f"{glyph}{retro_suffix}" if is_retro else glyph
-        mychart.add_planet(planet_const, display_symbol, house_num, retrograde=is_retro)
-
-    rahu_data = get_rahu_data(subject)
-    rahu_sign = rahu_data["sign"]
-    rahu_house = house_from_signs(rahu_sign, ascendant_abbr)
-    mychart.add_planet(chart.RAHU, i18n.planet_abbr("Rahu", lang), rahu_house, retrograde=True)
-
-    rahu_idx = SIGN_ORDER.index(rahu_sign)
-    ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
-    ketu_house = house_from_signs(ketu_sign, ascendant_abbr)
-    mychart.add_planet(chart.KETU, i18n.planet_abbr("Ketu", lang), ketu_house, retrograde=True)
+    _add_chart_planets(mychart, subject, ascendant_abbr, lang)
 
     # Turn off the default aspect glyph overlay (☉ ☾ ♂ ☿ ♃ ♀ ♄ ☊ ☋) so only
     # the plain planet abbreviations (Su, Mo, Ma, ... Ra, Ke - with the
@@ -802,6 +822,186 @@ def render_chart_svg(subject, style, output_dir, lang=i18n.DEFAULT_LANGUAGE):
     mychart.draw(output_dir, filename)
 
     return ascendant_full, _localize_chart_svg(_read_chart_svg(output_dir, filename), lang)
+
+
+# ---------------------------------------------------------------------------
+# Gochar (transit) chart
+# ---------------------------------------------------------------------------
+# A Gochar chart answers "where were the grahas on this date, read against
+# this horoscope". jyotichart draws it as a double ring - the natal chart on
+# the inside, the transit positions on the outside - via its
+# South/NorthTransitChart classes, which take the natal chart as their parent.
+#
+# Classical gochar is read from the natal Moon (Chandra Lagna) at least as
+# often as from the Ascendant, and the two frames put the same transit in
+# different houses, so both are rendered and the page lets the reader switch.
+
+GOCHAR_REFERENCES = ("lagna", "moon")
+
+# Time of day used when the caller doesn't pick one. Only the Moon (about
+# 13 degrees a day) and the Ascendant move enough for it to matter; noon
+# keeps the Moon's sign right for most of the day either side.
+GOCHAR_DEFAULT_TIME = "12:00"
+
+
+def gochar_reference_sign(natal_subject, reference):
+    """The natal sign that counts as house 1 in a Gochar frame.
+
+    "lagna" is the natal Ascendant's sign (the ordinary Rashi frame);
+    "moon" is the natal Moon's sign - the Chandra Lagna frame.
+    """
+    if reference == "moon":
+        return natal_subject.moon["sign"]
+    return natal_subject.first_house["sign"]
+
+
+def render_reference_chart_svg(subject, reference_abbr, chart_name, style,
+                               output_dir, lang, filename):
+    """Draw one ordinary single-ring chart for `subject`, counting houses from
+    `reference_abbr` rather than always from the subject's own Ascendant.
+
+    That last part is what `render_chart_svg` cannot do: it is hard-wired to
+    the Ascendant, while a Chandra Lagna chart needs the Moon's sign to be
+    house 1.
+    """
+    ChartClass = chart.SouthChart if style == "south" else chart.NorthChart
+    mychart = ChartClass(chart_name, subject.name, IsFullChart=True)
+    mychart.set_ascendantsign(SIGN_NAME_MAP[reference_abbr])
+    _add_chart_planets(mychart, subject, reference_abbr, lang)
+    mychart.updatechartcfg(aspect=False)
+
+    # jyotichart reports failures by returning a message rather than raising,
+    # so a bad draw would otherwise surface as a missing-file error.
+    status = mychart.draw(output_dir, filename)
+    if status != "Success":
+        raise RuntimeError(f"jyotichart could not draw the {chart_name} chart: {status}")
+
+    return _localize_chart_svg(_read_chart_svg(output_dir, filename), lang)
+
+
+def render_gochar_pair_svgs(natal_subject, transit_subject, reference, style,
+                            output_dir, lang):
+    """The two charts the Gochar popup shows side by side: the natal chart and
+    the transit chart for the chosen date.
+
+    Both are drawn against the same reference sign, so a graha sits in the same
+    box of both charts when it has not changed house - which is what makes
+    reading one against the other worthwhile.
+    """
+    reference_abbr = gochar_reference_sign(natal_subject, reference)
+    natal_name = "Chandra" if reference == "moon" else "Lagna"
+
+    return {
+        "natal": render_reference_chart_svg(
+            natal_subject, reference_abbr, natal_name, style, output_dir, lang,
+            f"gochar_natal_{reference}_{style}_{lang}",
+        ),
+        "gochar": render_reference_chart_svg(
+            transit_subject, reference_abbr, "Gochar", style, output_dir, lang,
+            f"gochar_transit_{reference}_{style}_{lang}",
+        ),
+    }
+
+
+def build_gochar_rows(transit_subject, natal_subject):
+    """One row per transiting graha: where it is, and which house it falls in
+    counted from the natal Ascendant and from the natal Moon.
+
+    The transit Ascendant is deliberately left out - the chart's Asc marker
+    belongs to the natal frame, and a second, faster-moving Ascendant in the
+    same table would only blur which one the houses are counted from.
+    """
+    lagna_abbr = natal_subject.first_house["sign"]
+    moon_abbr = natal_subject.moon["sign"]
+    sun_abs_pos = transit_subject.sun["abs_pos"]
+    rows = []
+
+    def add_row(label, sign_abbr, degree_in_sign, abs_pos, retro, check_combustion=True):
+        nak = nakshatra_details(abs_pos)
+        rows.append({
+            "planet": label,
+            "sign": SIGN_NAME_MAP[sign_abbr],
+            "degree": deg_to_dms(degree_in_sign),
+            "nakshatra": nak["name"],
+            "pada": nak["pada"],
+            "lord": nak["lord"],
+            "retrograde": bool(retro),
+            "combust": check_combustion and is_combust(label, abs_pos, sun_abs_pos, retro),
+            "house_lagna": house_from_signs(sign_abbr, lagna_abbr),
+            "house_moon": house_from_signs(sign_abbr, moon_abbr),
+        })
+
+    for attr, (_, symbol) in PLANETS.items():
+        p = getattr(transit_subject, attr)
+        label = symbol_to_label(symbol)
+        add_row(label, p["sign"], p["position"], p["abs_pos"], p.get("retrograde", False),
+                check_combustion=(label != "Sun"))
+
+    rahu_data = get_rahu_data(transit_subject)
+    add_row("Rahu", rahu_data["sign"], rahu_data["position"], rahu_data["abs_pos"],
+            True, check_combustion=False)
+
+    rahu_idx = SIGN_ORDER.index(rahu_data["sign"])
+    ketu_abs_pos = (rahu_data["abs_pos"] + 180.0) % 360.0
+    ketu_sign = SIGN_ORDER[(rahu_idx + 6) % 12]
+    add_row("Ketu", ketu_sign, ketu_abs_pos % 30.0, ketu_abs_pos, True, check_combustion=False)
+
+    return rows
+
+
+def build_gochar_context(form, transit_date, transit_time):
+    """Everything the Gochar popup shows for one date: both reference charts
+    (each drawn in every language, as the results page does) and the transit
+    positions table.
+
+    The transit is computed for the birth place - same latitude, longitude
+    and timezone - which is what makes the transit Ascendant and the house
+    counts line up with the natal chart.
+    """
+    year, month, day = (int(x) for x in form["date"].split("-"))
+    hour, minute = (int(x) for x in form["time"].split(":"))
+    lat = float(form["lat"])
+    lng = float(form["lng"])
+    city = form["city"] or "Unknown"
+
+    natal_subject = build_vedic_subject(
+        name=form["name"],
+        year=year, month=month, day=day, hour=hour, minute=minute,
+        lat=lat, lng=lng, tz_str=form["tz"], city=city,
+    )
+
+    t_year, t_month, t_day = (int(x) for x in transit_date.split("-"))
+    t_hour, t_minute = (int(x) for x in transit_time.split(":"))
+    transit_subject = build_vedic_subject(
+        name=form["name"],
+        year=t_year, month=t_month, day=t_day, hour=t_hour, minute=t_minute,
+        lat=lat, lng=lng, tz_str=form["tz"], city=city,
+    )
+
+    # The popup shows one chart at a time, so "both" doesn't apply here -
+    # South unless the reader explicitly chose North.
+    style = "north" if form["style"] == "north" else "south"
+
+    # charts[reference][lang] -> {"natal": svg, "gochar": svg}
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        for reference in GOCHAR_REFERENCES:
+            charts[reference] = {
+                lang: render_gochar_pair_svgs(
+                    natal_subject, transit_subject, reference, style, tmp_dir, lang,
+                )
+                for lang in i18n.LANGUAGES
+            }
+
+    return {
+        "date": transit_date,
+        "time": transit_time,
+        "style": style,
+        "charts": charts,
+        "rows": build_gochar_rows(transit_subject, natal_subject),
+        "natal_lagna": SIGN_NAME_MAP[natal_subject.first_house["sign"]],
+        "natal_moon": SIGN_NAME_MAP[natal_subject.moon["sign"]],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2060,8 +2260,7 @@ PAGE_TEMPLATE = """
   .dasha-row.level-3 { background: rgba(212, 175, 55, 0.13); }
   .dasha-row.level-1 td:first-child { padding-left: 26px; }
   .dasha-row.level-2 td:first-child { padding-left: 42px; }
-  .dasha-row.level-3 td:first-child { padding-left: 58px; cursor: default; }
-  .dasha-row.level-3:hover td { background: inherit; }
+  .dasha-row.level-3 td:first-child { padding-left: 58px; }
 
   .houses-box {
     background: var(--surface);
@@ -2071,6 +2270,181 @@ PAGE_TEMPLATE = """
     font-size: 13px;
   }
   .houses-box .placeholder-small { color: var(--muted); text-align: center; padding: 10px 0; }
+
+  /* ── Gochar (transit) ─────────────────────────────────────────────────
+     A panel under the dasha table that follows the selected row, plus the
+     modal the generated chart opens in. */
+  .gochar-period {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+  .gochar-chain { color: var(--primary-2); font-family: 'Cinzel', serif; font-weight: 700; }
+  .gochar-range { color: var(--muted); }
+  .gochar-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .gochar-field { display: flex; flex-direction: column; gap: 5px; }
+  .gochar-field > label {
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  .gochar-field input[type="date"],
+  .gochar-field input[type="time"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    /* Safari paints these controls white-on-white without an explicit scheme. */
+    color-scheme: dark;
+  }
+  .gochar-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+  /* Scrubbing a long Mahadasha date by date is unusable, so the slider moves
+     the same value the date box holds - the two stay in sync both ways. */
+  .gochar-slider { margin-top: 14px; }
+  .gochar-slider input[type="range"] { width: 100%; margin: 0; accent-color: var(--primary); }
+  .gochar-slider-ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-top: 2px;
+  }
+  .gochar-go {
+    background: var(--primary-grad);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--on-primary);
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
+    box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3);
+  }
+  .gochar-go:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(212, 175, 55, 0.4); }
+  .gochar-go:active:not(:disabled) { transform: scale(0.98); }
+  .gochar-go:disabled { opacity: 0.55; cursor: progress; }
+  .gochar-note { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .gochar-error { margin-top: 10px; font-size: 12.5px; color: var(--danger-text); }
+
+  .gochar-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    padding-top: calc(16px + var(--safe-t));
+    padding-bottom: calc(16px + var(--safe-b));
+    background: rgba(8, 7, 16, 0.78);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  .gochar-modal[hidden] { display: none; }
+  .gochar-dialog {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    width: min(980px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .gochar-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .gochar-dialog-head h3 {
+    margin: 0 0 3px;
+    font-family: 'Cinzel', serif;
+    font-size: 16px;
+    color: var(--primary-2);
+  }
+  .gochar-dialog-sub { font-size: 12.5px; color: var(--muted); }
+  .gochar-close {
+    margin-left: auto;
+    flex: none;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 18px;
+    line-height: 1;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .gochar-close:hover { border-color: var(--primary); color: var(--primary-2); }
+  .gochar-dialog-body { padding: 16px 18px 18px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .gochar-refs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .gochar-ref-btn {
+    flex: 1 1 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 12.5px;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .gochar-ref-btn[aria-pressed="true"] {
+    background: var(--primary-grad-soft);
+    border-color: rgba(212, 175, 55, 0.45);
+    color: var(--text);
+    font-weight: 700;
+  }
+  /* The natal chart and the transit sit side by side on a wide screen and
+     stack on a phone, so they are always read against each other rather
+     than drawn on top of each other. */
+  .gochar-charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+  }
+  .gochar-chart-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px;
+  }
+  .gochar-chart-card h4 {
+    margin: 0 0 8px;
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--primary-2);
+    text-align: center;
+  }
+  .gochar-chart { text-align: center; }
+  .gochar-chart svg { max-width: 100%; height: auto; }
+  .gochar-chart .chart-svg[data-lang-svg] { display: none; }
+  html[data-lang="en"] .gochar-chart .chart-svg[data-lang-svg="en"],
+  html[data-lang="ta"] .gochar-chart .chart-svg[data-lang-svg="ta"] { display: block; }
+  .gochar-frame { margin: 12px 0 14px; font-size: 12px; color: var(--muted); text-align: center; }
+  .gochar-modal table { font-size: 12.5px; }
   .houses-box-row { display: flex; flex-wrap: wrap; gap: 10px; }
   .houses-box-row .planet-block { flex: 1 1 260px; margin-bottom: 0; }
   .dasha-level-block { margin-bottom: 16px; }
@@ -2373,6 +2747,39 @@ PAGE_TEMPLATE = """
         <div class="placeholder-small" data-i18n="houses.placeholder">Tap a Mahadasha, Antardasha or Pratyantardasha row above.</div>
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
+
+      <div class="section-title"><span data-i18n="section.gochar">Gochar (Transit) for this Period</span></div>
+      <small class="hint" data-i18n="gochar.hint">
+        Tap any Dasha, Bhukti, Antaram or Sookshma row above, then pick a date
+        inside that period to see where the grahas were transiting on that day.
+        A period that lasts a single day needs no picking. The chart opens in a
+        panel you can close again.
+      </small>
+      <div id="gocharBox" class="houses-box">
+        <div class="placeholder-small" data-i18n="gochar.placeholder">Tap a Dasha, Bhukti, Antaram or Sookshma row above.</div>
+      </div>
+      <!-- The details this chart was actually built from, so the transit is
+           always read against the horoscope on screen even if someone edits
+           the form above without pressing Generate again. -->
+      <script id="gocharBirthData" type="application/json">{{ form | tojson }}</script>
+
+      <!-- The chart itself opens here rather than inline, so a reader can
+           flip through several dates in a period without the page jumping
+           around underneath them. Hidden (and inert) until a chart arrives. -->
+      <div id="gocharModal" class="gochar-modal" hidden role="dialog" aria-modal="true"
+           aria-labelledby="gocharModalTitle">
+        <div class="gochar-dialog">
+          <div class="gochar-dialog-head">
+            <div>
+              <h3 id="gocharModalTitle" data-i18n="gochar.title">Gochar (Transit) Chart</h3>
+              <div class="gochar-dialog-sub" id="gocharModalSub"></div>
+            </div>
+            <button type="button" class="gochar-close" id="gocharClose"
+                    data-i18n-attr="aria-label:gochar.close">&times;</button>
+          </div>
+          <div class="gochar-dialog-body" id="gocharModalBody"></div>
+        </div>
+      </div>
 
       <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span></div>
       <small class="hint" data-i18n="marriage.hint">
@@ -2797,17 +3204,322 @@ PAGE_TEMPLATE = """
             row.classList.add("expanded");
           }
 
+          // ── Gochar (transit) panel + popup ─────────────────────────
+          // The panel follows whichever dasha row is selected and offers a
+          // date inside that period; the chart for that date is fetched from
+          // /gochar and shown in the modal, so several dates can be compared
+          // without the page scrolling away underneath the reader.
+          const gocharBox = document.getElementById("gocharBox");
+          const gocharModal = document.getElementById("gocharModal");
+          const gocharBody = document.getElementById("gocharModalBody");
+          const gocharSub = document.getElementById("gocharModalSub");
+          const gocharBirthEl = document.getElementById("gocharBirthData");
+          const GOCHAR_DEFAULT_TIME = "12:00";
+
+          // The birth details the server actually charted, not the form boxes -
+          // editing those without pressing Generate must not silently move the
+          // transit onto a different horoscope.
+          let BIRTH_DETAILS = {};
+          try {
+            BIRTH_DETAILS = gocharBirthEl ? JSON.parse(gocharBirthEl.textContent || "{}") : {};
+          } catch (err) {
+            BIRTH_DETAILS = {};
+          }
+
+          let gocharSelection = null;  // chain whose period the panel is showing
+          let gocharDraft = null;      // { periodKey, date, time } dialled in so far
+          let gocharResult = null;     // last /gochar payload, kept for language switches
+          let gocharRef = "lagna";     // which frame the modal is showing
+          let gocharBusy = false;
+
+          const dayNumber = (iso) => Math.round(new Date(iso + "T00:00:00Z").getTime() / 86400000);
+          const daysBetween = (from, to) => dayNumber(to) - dayNumber(from);
+          const shiftDays = (iso, days) => isoDate(addDays(new Date(iso + "T00:00:00Z"), days));
+          const clampDate = (iso, min, max) => (iso < min ? min : iso > max ? max : iso);
+          const escapeAttr = (value) => String(value).replace(/[&<>"']/g, (ch) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+          // A chain's innermost entry is the period the reader actually picked;
+          // everything above it is just context for the heading.
+          const gocharPeriod = (chain) => chain[chain.length - 1];
+
+          const withinPeriod = (iso, period) => iso >= period.start && iso <= period.end;
+
+          // Which date a newly selected period should open on.
+          //
+          // Never its start: every period's first sub-period begins on the same
+          // day as its parent, so anchoring there would hand back the same date
+          // at every level and make drilling down pointless. Boundary dates are
+          // also shared with the neighbouring period, so they show neither
+          // period's transits cleanly.
+          function gocharDefaultDate(period) {
+            // Drilling into the sub-period that contains the date already on
+            // screen is a request to narrow the window, not to move the day.
+            if (gocharDraft && withinPeriod(gocharDraft.date, period)) return gocharDraft.date;
+            const today = todayISO();
+            if (withinPeriod(today, period)) return today;
+            const span = daysBetween(period.start, period.end);
+            return span > 0 ? shiftDays(period.start, Math.round(span / 2)) : period.start;
+          }
+
+          function gocharPanelHTML(chain) {
+            const period = gocharPeriod(chain);
+            // Sookshma periods can be shorter than a day, in which case start
+            // and end land on the same date and there is nothing to choose.
+            const span = Math.max(0, daysBetween(period.start, period.end));
+            const draft = gocharDraft;
+            const chainLabel = chain
+              .map((l) => `${I18N.term("dasha_level", l.role)} ${planet(l.label)}`)
+              .join(" \u203a ");
+
+            const slider = span > 0 ? `
+              <div class="gochar-slider">
+                <input type="range" id="gocharSlide" min="0" max="${span}"
+                       value="${daysBetween(period.start, draft.date)}"
+                       aria-label="${escapeAttr(I18N.t("gochar.date_label"))}">
+                <div class="gochar-slider-ends"><span>${period.start}</span><span>${period.end}</span></div>
+              </div>` : "";
+
+            const note = span > 0
+              ? `<div class="gochar-note" data-i18n="gochar.time_hint">${I18N.t("gochar.time_hint")}</div>`
+              : `<div class="gochar-note" data-i18n="gochar.single_day">${I18N.t("gochar.single_day")}</div>`;
+
+            return `
+              <div class="gochar-period">
+                <span class="gochar-chain">${chainLabel}</span>
+                <span class="gochar-range">${period.start} &rarr; ${period.end}</span>
+              </div>
+              <div class="gochar-controls">
+                <div class="gochar-field">
+                  <label for="gocharDate" data-i18n="gochar.date_label">${I18N.t("gochar.date_label")}</label>
+                  <input type="date" id="gocharDate" value="${draft.date}"
+                         min="${period.start}" max="${period.end}">
+                </div>
+                <div class="gochar-field">
+                  <label for="gocharTime" data-i18n="gochar.time_label">${I18N.t("gochar.time_label")}</label>
+                  <input type="time" id="gocharTime" value="${draft.time}">
+                </div>
+                <button type="button" class="gochar-go" id="gocharGo" data-i18n="gochar.generate">${I18N.t("gochar.generate")}</button>
+              </div>
+              ${slider}
+              ${note}
+              <div class="gochar-error" id="gocharError" hidden></div>`;
+          }
+
+          function updateGocharBox(chain) {
+            gocharSelection = chain;
+            if (!gocharBox) return;
+            if (!chain || !chain.length) {
+              gocharBox.innerHTML = `<div class="placeholder-small" data-i18n="gochar.placeholder">${I18N.t("gochar.placeholder")}</div>`;
+              return;
+            }
+            const period = gocharPeriod(chain);
+            const key = period.start + "/" + period.end;
+            // Keep the reader's date and time when only the language changed;
+            // pick a fresh date on a new period.
+            if (!gocharDraft || gocharDraft.periodKey !== key) {
+              const date = gocharDefaultDate(period);
+              const time = (gocharDraft && gocharDraft.time) || GOCHAR_DEFAULT_TIME;
+              gocharDraft = { periodKey: key, date: date, time: time };
+            }
+            gocharBox.innerHTML = gocharPanelHTML(chain);
+          }
+
+          function gocharShowError(key) {
+            const box = document.getElementById("gocharError");
+            if (!box) return;
+            box.textContent = I18N.t(key);
+            box.dataset.i18n = key;
+            box.hidden = false;
+          }
+
+          function gocharModalHTML(data) {
+            const refButton = (ref, key) => `
+              <button type="button" class="gochar-ref-btn" data-gochar-ref="${ref}"
+                      aria-pressed="${gocharRef === ref}" data-i18n="${key}">${I18N.t(key)}</button>`;
+
+            // One card per chart, each holding the same chart in every
+            // language with CSS showing the one in play.
+            const chartCard = (kind, titleKey) => `
+              <div class="gochar-chart-card">
+                <h4 data-i18n="${titleKey}">${I18N.t(titleKey)}</h4>
+                <div class="gochar-chart">${I18N.languages
+                  .map((code) => `<div class="chart-svg" data-lang-svg="${code}">${data.charts[gocharRef][code][kind]}</div>`)
+                  .join("")}</div>
+              </div>`;
+
+            const frameKey = gocharRef === "moon" ? "gochar.frame_moon" : "gochar.frame_lagna";
+            const frameSign = gocharRef === "moon" ? data.natal_moon : data.natal_lagna;
+
+            const rows = data.rows.map((r) => `
+              <tr>
+                <td>${r.combust ? "\U0001F525 " : ""}<span data-i18n-term="planet:${r.planet}">${planet(r.planet)}</span></td>
+                <td data-i18n-term="sign:${r.sign}">${sign(r.sign)}</td>
+                <td>${r.degree}</td>
+                <td data-i18n-term="nakshatra:${r.nakshatra}">${I18N.term("nakshatra", r.nakshatra)}</td>
+                <td>${r.pada}</td>
+                <td data-i18n-ordinal="${r.house_lagna}">${ordinal(r.house_lagna)}</td>
+                <td data-i18n-ordinal="${r.house_moon}">${ordinal(r.house_moon)}</td>
+                <td data-i18n="${r.retrograde ? "gochar.retro" : "gochar.direct"}">${I18N.t(r.retrograde ? "gochar.retro" : "gochar.direct")}</td>
+              </tr>`).join("");
+
+            return `
+              <div class="gochar-refs">
+                ${refButton("lagna", "gochar.ref_lagna")}
+                ${refButton("moon", "gochar.ref_moon")}
+              </div>
+              <div class="gochar-charts">
+                ${chartCard("natal", "gochar.chart_natal")}
+                ${chartCard("gochar", "gochar.chart_transit")}
+              </div>
+              <div class="gochar-frame">
+                <div data-i18n="gochar.pair_hint">${I18N.t("gochar.pair_hint")}</div>
+                <div>${I18N.t(frameKey, { sign: sign(frameSign) })}</div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th data-i18n="th.planet">${I18N.t("th.planet")}</th>
+                      <th data-i18n="th.sign">${I18N.t("th.sign")}</th>
+                      <th data-i18n="th.degree">${I18N.t("th.degree")}</th>
+                      <th data-i18n="th.nakshatra">${I18N.t("th.nakshatra")}</th>
+                      <th data-i18n="th.pada">${I18N.t("th.pada")}</th>
+                      <th data-i18n="th.house_lagna">${I18N.t("th.house_lagna")}</th>
+                      <th data-i18n="th.house_moon">${I18N.t("th.house_moon")}</th>
+                      <th data-i18n="th.motion">${I18N.t("th.motion")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+              <small class="hint" data-i18n="gochar.combust_hint">${I18N.t("gochar.combust_hint")}</small>`;
+          }
+
+          function renderGocharModal() {
+            if (!gocharResult || !gocharBody) return;
+            gocharBody.innerHTML = gocharModalHTML(gocharResult);
+            if (gocharSub) {
+              gocharSub.textContent = I18N.t("gochar.for_date", {
+                date: gocharResult.date, time: gocharResult.time,
+              });
+            }
+            // The frame sentence and the modal's heading are built with values
+            // filled in, so I18N.apply() would overwrite them - it is scoped to
+            // the table and chart, which only carry plain keys and terms.
+            I18N.apply(gocharBody);
+          }
+
+          // The page behind the modal keeps its scroll position; locking the
+          // body would jump a phone back to the top on every open and close.
+          function openGocharModal() {
+            if (!gocharModal) return;
+            gocharModal.hidden = false;
+            const closeBtn = document.getElementById("gocharClose");
+            if (closeBtn) closeBtn.focus();
+          }
+
+          function closeGocharModal() {
+            if (gocharModal) gocharModal.hidden = true;
+          }
+
+          async function fetchGochar() {
+            if (gocharBusy || !gocharSelection || !gocharDraft) return;
+            const button = document.getElementById("gocharGo");
+            const errorBox = document.getElementById("gocharError");
+            if (errorBox) errorBox.hidden = true;
+            gocharBusy = true;
+            if (button) {
+              button.disabled = true;
+              button.textContent = I18N.t("gochar.loading");
+            }
+            try {
+              const response = await fetch("/gochar", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(Object.assign({}, BIRTH_DETAILS, {
+                  gochar_date: gocharDraft.date,
+                  gochar_time: gocharDraft.time,
+                })),
+              });
+              const data = await response.json();
+              if (!response.ok) {
+                gocharShowError(data.error || "gochar.err_generic");
+                return;
+              }
+              gocharResult = data;
+              renderGocharModal();
+              openGocharModal();
+            } catch (err) {
+              gocharShowError("gochar.err_network");
+            } finally {
+              gocharBusy = false;
+              if (button) {
+                button.disabled = false;
+                button.textContent = I18N.t("gochar.generate");
+              }
+            }
+          }
+
+          if (gocharBox) {
+            // The date box and the slider are two views of one value - a long
+            // Mahadasha is far easier to scrub than to type a date into.
+            gocharBox.addEventListener("input", (e) => {
+              if (!gocharSelection || !gocharDraft) return;
+              const period = gocharPeriod(gocharSelection);
+              if (e.target.id === "gocharDate") {
+                gocharDraft.date = clampDate(e.target.value, period.start, period.end);
+                e.target.value = gocharDraft.date;
+                const slide = document.getElementById("gocharSlide");
+                if (slide) slide.value = daysBetween(period.start, gocharDraft.date);
+              } else if (e.target.id === "gocharSlide") {
+                gocharDraft.date = shiftDays(period.start, parseInt(e.target.value, 10));
+                const box = document.getElementById("gocharDate");
+                if (box) box.value = gocharDraft.date;
+              } else if (e.target.id === "gocharTime") {
+                gocharDraft.time = e.target.value || GOCHAR_DEFAULT_TIME;
+              }
+            });
+            gocharBox.addEventListener("click", (e) => {
+              if (e.target.closest("#gocharGo")) fetchGochar();
+            });
+          }
+
+          if (gocharModal) {
+            gocharModal.addEventListener("click", (e) => {
+              // Anywhere outside the dialog, or the close button itself.
+              if (e.target === gocharModal || e.target.closest("#gocharClose")) {
+                closeGocharModal();
+                return;
+              }
+              const refBtn = e.target.closest("[data-gochar-ref]");
+              if (refBtn) {
+                gocharRef = refBtn.dataset.gocharRef;
+                renderGocharModal();
+              }
+            });
+            document.addEventListener("keydown", (e) => {
+              if (e.key === "Escape" && !gocharModal.hidden) closeGocharModal();
+            });
+          }
+
           tbody.addEventListener("click", (e) => {
             const row = e.target.closest(".dasha-row");
             if (!row) return;
             const level = parseInt(row.dataset.level, 10);
 
-            if (level <= HOUSES_BOX_MAX_LEVEL) {
-              tbody.querySelectorAll(".dasha-selected").forEach((r) => r.classList.remove("dasha-selected"));
-              row.classList.add("dasha-selected");
-              updateHousesBox(lordChain(row));
-              updateMarriageBox(lordChain(row), false);
-            }
+            const chain = lordChain(row);
+            tbody.querySelectorAll(".dasha-selected").forEach((r) => r.classList.remove("dasha-selected"));
+            row.classList.add("dasha-selected");
+
+            // Gochar reads any single period, right down to the Sookshma. The
+            // Houses Involved and 3-7-11 boxes are built around three lords, so
+            // a Sookshma tap hands them that row's three ancestors rather than
+            // a fourth lord they have no rule for.
+            updateGocharBox(chain);
+            const boxChain = chain.slice(0, HOUSES_BOX_MAX_LEVEL + 1);
+            updateHousesBox(boxChain);
+            updateMarriageBox(boxChain, false);
 
             if (level >= MAX_LEVEL) return;
             if (row.classList.contains("expanded")) {
@@ -2823,9 +3535,15 @@ PAGE_TEMPLATE = """
           I18N.onChange(() => {
             if (currentHousesSelection) updateHousesBox(currentHousesSelection);
             if (marriageSelection) updateMarriageBox(marriageSelection.chain, marriageSelection.isCurrent);
+            // The panel keeps the date already dialled in - only its labels
+            // and the lord names are rebuilt.
+            updateGocharBox(gocharSelection);
+            if (gocharResult && gocharModal && !gocharModal.hidden) renderGocharModal();
           });
 
           updateMarriageBox(currentChain(todayISO()), true);
+          // Opens on the period running today, with today's date preselected.
+          updateGocharBox(currentChain(todayISO()));
         })();
       </script>
     {% else %}
@@ -4437,6 +5155,41 @@ def generate():
             marriage_json="{}",
             conjunctions=None, sign_conjunctions=None, playground_url=None,
         )
+
+
+# The Gochar popup posts a date (and time) alongside the same birth details
+# every other action on the results page re-posts, so it needs no session
+# state either. Both are validated here rather than trusted - they arrive
+# from an <input> the reader can type into freely.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+@app.route("/gochar", methods=["POST"])
+def gochar():
+    """Transit chart for one date, as JSON for the results page's popup."""
+    payload = request.get_json(silent=True) or {}
+
+    transit_date = str(payload.get("gochar_date", "")).strip()
+    transit_time = str(payload.get("gochar_time", "")).strip() or GOCHAR_DEFAULT_TIME
+    if not _ISO_DATE_RE.match(transit_date):
+        return jsonify({"error": "gochar.err_bad_date"}), 400
+    if not _ISO_TIME_RE.match(transit_time):
+        return jsonify({"error": "gochar.err_bad_time"}), 400
+
+    form = {
+        field: str(payload.get(field, "")).strip()
+        for field in ("name", "city", "date", "time", "lat", "lng", "tz", "style")
+    }
+    form["name"] = form["name"] or "Chart"
+
+    try:
+        return jsonify(build_gochar_context(form, transit_date, transit_time))
+    except Exception as e:
+        # The birth details came from a chart the server already rendered, so
+        # a failure here is almost always the date itself - out of the
+        # ephemeris' range, or a day the transit subject can't be built for.
+        return jsonify({"error": "gochar.err_generic", "detail": str(e)}), 400
 
 
 def _pdf_content_disposition(name):
