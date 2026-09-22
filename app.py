@@ -56,6 +56,8 @@ import jyotichart as chart
 
 import db as storage
 import i18n
+import porutham
+import jathagam
 
 try:
     from geopy.geocoders import Nominatim
@@ -380,6 +382,13 @@ window.I18N = (function () {
       if (sep === -1) return;
       el.textContent = term(spec.slice(0, sep), spec.slice(sep + 1));
     });
+    // A bare house number written as an ordinal in the current language, so
+    // "10" reads "10th" in English and "10ஆம்" in Tamil. Placed before its
+    // noun, which is the order both languages happen to want.
+    scope.querySelectorAll("[data-i18n-ordinal]").forEach(function (el) {
+      var n = Number(el.getAttribute("data-i18n-ordinal"));
+      if (!isNaN(n)) el.textContent = ordinal(n);
+    });
     if (!root) {
       var titleEl = document.querySelector("title[data-i18n]");
       if (titleEl) document.title = t(titleEl.getAttribute("data-i18n"));
@@ -555,6 +564,7 @@ app.jinja_env.globals["lang_switch_css"] = LANG_SWITCH_CSS
 app.jinja_env.globals["lang_boot"] = LANG_BOOT_SCRIPT
 app.jinja_env.globals["t"] = i18n.t
 app.jinja_env.globals["term"] = i18n.term
+app.jinja_env.globals["ordinal"] = i18n.ordinal
 
 
 # "Play with Chart" - a standalone drag-and-drop South Indian chart page
@@ -1660,6 +1670,28 @@ PAGE_TEMPLATE = """
   .admin-btn:hover { background: rgba(90,140,255,0.18); border-color: #7aa2ff; color: #cfe0ff; }
   .admin-btn:active { transform: scale(0.96); }
 
+  /* Same pill as .admin-btn, in the app's gold instead of the admin blue. */
+  .porutham-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--primary-2);
+    background: rgba(212,175,55,0.08);
+    border: 1.5px solid rgba(212,175,55,0.5);
+    border-radius: 999px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .porutham-btn:hover { background: rgba(212,175,55,0.18); border-color: var(--gold); color: #ffe060; }
+  .porutham-btn:active { transform: scale(0.96); }
+
   .layout {
     max-width: 1180px;
     margin: 0 auto;
@@ -2166,6 +2198,7 @@ PAGE_TEMPLATE = """
     <p class="app-bar__subtitle" data-i18n="app.subtitle">Sidereal &middot; Lahiri ayanamsa</p>
   </div>
   {{ lang_switch | safe }}
+  <a class="porutham-btn" href="/porutham">&#128142; <span data-i18n="nav.porutham">10 Porutham</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
@@ -2992,6 +3025,1105 @@ PAGE_TEMPLATE = """
 </body>
 </html>
 """
+
+# ---------------------------------------------------------------------------
+# 10 Porutham - Tamil marriage matching
+# ---------------------------------------------------------------------------
+# The ten checks themselves live in porutham.py (pure lookups and counts over
+# the 27-star and 12-sign cycles). All this page has to do is get the Moon's
+# nakshatra and rashi for two people and hand them over. Those two facts can
+# be typed in directly - which is how a family usually has them, from the
+# birth almanac rather than from coordinates - or pulled off a chart already
+# saved in the admin panel.
+
+# Options for the two dropdowns, built once. Stars keep their English names
+# as values because that is the key porutham.py and i18n both index on;
+# signs use the same three-letter abbreviations the rest of the app passes
+# around, with the correctly spelled full name as the translation key.
+PORUTHAM_STAR_OPTIONS = list(porutham.NAKSHATRA_NAMES)
+PORUTHAM_SIGN_OPTIONS = [(abbr, SIGN_NAME_FULL[abbr]) for abbr in porutham.SIGN_ORDER]
+
+PORUTHAM_SIDES = ("groom", "bride")
+# The birth-details fields the "Full horoscope" mode collects per person, on
+# top of the name the quick mode already asks for.
+PORUTHAM_BIRTH_FIELDS = ("city", "date", "time", "lat", "lng", "tz")
+
+EMPTY_PORUTHAM_FORM = {"mode": "quick"}
+for _side in PORUTHAM_SIDES:
+    EMPTY_PORUTHAM_FORM.update({
+        f"{_side}_name": "", f"{_side}_star": "", f"{_side}_pada": "", f"{_side}_rasi": "",
+        **{f"{_side}_{_f}": "" for _f in PORUTHAM_BIRTH_FIELDS},
+    })
+
+
+def moon_details(subject):
+    """The Moon's nakshatra, pada and rashi - everything porutham.match wants."""
+    moon = subject.moon
+    nak = nakshatra_details(moon["abs_pos"])
+    return {"star": nak["name"], "pada": nak["pada"], "rasi": moon["sign"]}
+
+
+def chart_positions(subject):
+    """{graha: sign abbreviation} plus the Ascendant's sign, for jathagam.
+
+    gather_chart_bodies() already assembles the Ascendant, the seven
+    classical grahas and both nodes from the chart this app builds, so the
+    chart-level checks read exactly the positions the drawn charts show.
+    """
+    positions = {}
+    ascendant = None
+    for label, sign_abbr, _degree, _abs_pos in gather_chart_bodies(subject):
+        if label == "Ascendant":
+            ascendant = sign_abbr
+        else:
+            positions[label] = sign_abbr
+    return positions, ascendant
+
+
+def read_porutham_form(req):
+    """Pull both people's details out of a submitted form, whichever mode."""
+    fields = {"mode": "full" if req.form.get("mode") == "full" else "quick"}
+    for side in PORUTHAM_SIDES:
+        fields[f"{side}_name"] = req.form.get(f"{side}_name", "").strip()
+        fields[f"{side}_star"] = req.form.get(f"{side}_star", "").strip()
+        fields[f"{side}_pada"] = req.form.get(f"{side}_pada", "").strip()
+        fields[f"{side}_rasi"] = req.form.get(f"{side}_rasi", "").strip()
+        for name in PORUTHAM_BIRTH_FIELDS:
+            fields[f"{side}_{name}"] = req.form.get(f"{side}_{name}", "").strip()
+    return fields
+
+
+def porutham_pada(form, side):
+    """The chosen pada as an int, or None when left on "Not known"."""
+    raw = form.get(f"{side}_pada", "")
+    return int(raw) if raw in ("1", "2", "3", "4") else None
+
+
+def build_porutham_charts(form):
+    """Full-horoscope mode: a chart per person, and what it says.
+
+    Returns (moon details per side, chart analysis per side). Raises
+    ValueError when a side's birth details are incomplete, and lets anything
+    the ephemeris raises through for the caller to report.
+    """
+    moons, charts = {}, {}
+    for side in PORUTHAM_SIDES:
+        missing = [name for name in PORUTHAM_BIRTH_FIELDS
+                   if name != "city" and not form[f"{side}_{name}"]]
+        if missing:
+            raise ValueError(f"{side} is missing: {', '.join(missing)}")
+
+        year, month, day = (int(x) for x in form[f"{side}_date"].split("-"))
+        hour, minute = (int(x) for x in form[f"{side}_time"].split(":"))
+        subject = build_vedic_subject(
+            name=form[f"{side}_name"] or side.title(),
+            year=year, month=month, day=day, hour=hour, minute=minute,
+            lat=float(form[f"{side}_lat"]), lng=float(form[f"{side}_lng"]),
+            tz_str=form[f"{side}_tz"], city=form[f"{side}_city"] or "Unknown",
+        )
+        moons[side] = moon_details(subject)
+        positions, ascendant = chart_positions(subject)
+        charts[side] = jathagam.analyse(positions, ascendant)
+    return moons, charts
+
+
+PORUTHAM_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title data-i18n="porutham.page_title">10 Porutham - Tamil Marriage Matching</title>
+<meta name="description" content="Check the ten traditional Tamil marriage poruthams from two birth stars and moon signs.">
+<meta name="theme-color" content="#0b0d17">
+{{ lang_boot | safe }}
+<script src="/i18n.js"></script>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #12111e;
+    --surface: #1a1830;
+    --surface-2: #211f38;
+    --border: rgba(212,175,55,0.25);
+    --text: #e0d5c5;
+    --muted: rgba(224,213,197,0.65);
+    --muted-2: rgba(224,213,197,0.4);
+    --primary: #d4af37;
+    --primary-2: #e0c477;
+    --primary-grad: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    --on-primary: #1c1710;
+    --gold: #d4af37;
+    /* One colour per classical verdict, reused by the badges, the card
+       edges and the summary ring so the three readings stay recognisable. */
+    --ok: #6fd08c;
+    --mid: #e0c477;
+    --bad: #ff7a68;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-t: env(safe-area-inset-top, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, var(--bg) 100%);
+    background-attachment: fixed;
+    color: var(--text);
+    padding-top: var(--safe-t);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app-bar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: calc(14px + var(--safe-t)) 16px 14px;
+    background: rgba(18, 17, 30, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .app-bar__icon { width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; }
+  .app-bar__titles { flex: 1; min-width: 0; }
+  .app-bar__title {
+    font-family: 'Cinzel', serif;
+    font-size: 15px; font-weight: 700; letter-spacing: 0.5px;
+    margin: 0; color: var(--gold);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-shadow: 0 0 16px rgba(212,175,55,0.35);
+  }
+  .app-bar__subtitle {
+    font-size: 11.5px; color: var(--muted); margin: 1px 0 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .back-btn {
+    flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px;
+    font-family: 'Cinzel', serif; font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--primary-2);
+    background: rgba(212,175,55,0.08);
+    border: 1.5px solid rgba(212,175,55,0.5);
+    border-radius: 999px;
+    text-decoration: none; white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .back-btn:hover { background: rgba(212,175,55,0.18); border-color: var(--gold); }
+  /* On a phone the bar has to hold the title, the language toggle and this
+     button; the Tamil label is long enough to squeeze the title to nothing,
+     so below this width the arrow carries the link on its own. */
+  @media (max-width: 560px) {
+    .back-btn { padding: 8px 11px; }
+    .back-btn span { display: none; }
+  }
+
+  .layout {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 18px 16px calc(48px + var(--safe-b));
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.35);
+  }
+  .intro { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+
+  /* The two people sit side by side on anything wider than a phone and
+     stack below that, so neither column ever needs a sideways scroll. */
+  .pair-grid { display: grid; gap: 16px; }
+  @media (min-width: 620px) { .pair-grid { grid-template-columns: 1fr 1fr; } }
+
+  .person { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .person__title {
+    font-family: 'Cinzel', serif;
+    color: var(--gold);
+    font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .person__title::before {
+    content: ""; width: 4px; height: 15px; border-radius: 3px;
+    background: var(--primary-grad); display: inline-block;
+  }
+
+  .field-label {
+    display: block;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 0 7px;
+  }
+  .field-label:first-of-type { margin-top: 0; }
+
+  input[type="text"], select {
+    width: 100%;
+    padding: 12px 13px;
+    background: var(--surface-2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'Lato', sans-serif;
+    font-size: 16px; /* >=16px keeps iOS from zooming the page on focus */
+    -webkit-appearance: none; appearance: none;
+    color-scheme: dark;
+  }
+  select { background-image: none; }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.18);
+  }
+  small.hint {
+    display: block; color: var(--muted-2); font-size: 11.5px;
+    margin-top: 6px; line-height: 1.45;
+  }
+  small.hint.bad { color: var(--bad); }
+
+  button.submit-btn {
+    width: 100%;
+    margin-top: 22px;
+    padding: 15px;
+    background: var(--primary-grad);
+    color: var(--on-primary);
+    font-family: 'Cinzel', serif;
+    font-weight: 700; font-size: 14.5px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: none; border-radius: var(--radius-sm);
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(212, 175, 55, 0.35);
+    transition: transform 0.12s;
+  }
+  button.submit-btn:active { transform: scale(0.98); }
+
+  .error {
+    background: rgba(255,50,30,0.1);
+    border: 1px solid rgba(255,80,60,0.6);
+    color: #ff8877;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+  }
+
+  /* -- summary ------------------------------------------------------------ */
+  .verdict-card {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--mid);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+  }
+  .verdict-card.is-excellent { border-left-color: var(--ok); }
+  .verdict-card.is-acceptable { border-left-color: var(--mid); }
+  .verdict-card.is-poor, .verdict-card.is-blocked { border-left-color: var(--bad); }
+
+  .score-ring {
+    flex: 0 0 auto;
+    width: 84px; height: 84px; border-radius: 50%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    border: 3px solid var(--mid);
+    background: rgba(212,175,55,0.07);
+  }
+  .is-excellent .score-ring { border-color: var(--ok); background: rgba(111,208,140,0.08); }
+  .is-poor .score-ring, .is-blocked .score-ring { border-color: var(--bad); background: rgba(255,122,104,0.08); }
+  .score-ring b { font-family: 'Cinzel', serif; font-size: 26px; line-height: 1; color: var(--text); }
+  .score-ring span { font-size: 10.5px; color: var(--muted); margin-top: 3px; letter-spacing: 0.04em; }
+
+  .verdict-body { flex: 1 1 220px; min-width: 0; }
+  .verdict-body h2 {
+    font-family: 'Cinzel', serif;
+    margin: 0 0 4px; font-size: 17px; letter-spacing: 0.03em;
+    color: var(--mid);
+  }
+  .is-excellent .verdict-body h2 { color: var(--ok); }
+  .is-poor .verdict-body h2, .is-blocked .verdict-body h2 { color: var(--bad); }
+  .verdict-names { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .tally { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tally span {
+    font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+    background: var(--surface-2);
+  }
+  .tally .t-good { color: var(--ok); border-color: rgba(111,208,140,0.45); }
+  .tally .t-medium { color: var(--mid); border-color: rgba(224,196,119,0.45); }
+  .tally .t-bad { color: var(--bad); border-color: rgba(255,122,104,0.45); }
+
+  .blocked-note {
+    background: rgba(255,122,104,0.08);
+    border: 1px solid rgba(255,122,104,0.4);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    font-size: 13px; line-height: 1.6; color: #ffb3a7;
+  }
+
+  /* -- the ten cards ------------------------------------------------------ */
+  .porutham-list { display: grid; gap: 12px; }
+  @media (min-width: 720px) { .porutham-list { grid-template-columns: 1fr 1fr; } }
+
+  .p-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--mid);
+    border-radius: var(--radius-md);
+    padding: 15px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .p-card.is-good { border-left-color: var(--ok); }
+  .p-card.is-medium { border-left-color: var(--mid); }
+  .p-card.is-bad { border-left-color: var(--bad); }
+
+  .p-head { display: flex; align-items: flex-start; gap: 10px; }
+  .p-head__text { flex: 1; min-width: 0; }
+  .p-head h3 {
+    font-family: 'Cinzel', serif;
+    margin: 0; font-size: 13.5px; font-weight: 700;
+    letter-spacing: 0.03em; color: var(--text);
+  }
+  .p-about { margin: 3px 0 0; font-size: 11.5px; color: var(--muted-2); line-height: 1.4; }
+
+  .badge {
+    flex-shrink: 0;
+    font-family: 'Cinzel', serif;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid currentColor;
+  }
+  .badge.is-good { color: var(--ok); background: rgba(111,208,140,0.1); }
+  .badge.is-medium { color: var(--mid); background: rgba(224,196,119,0.1); }
+  .badge.is-bad { color: var(--bad); background: rgba(255,122,104,0.1); }
+
+  .critical-tag {
+    display: inline-block; margin-left: 6px;
+    font-family: 'Lato', sans-serif; font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted-2);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 5px; vertical-align: 2px;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: baseline; gap: 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    max-width: 100%;
+  }
+  .chip__label { color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .chip__value { color: var(--text); font-weight: 700; }
+
+  .p-reason { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+  .footnote { color: var(--muted-2); font-size: 11.5px; line-height: 1.6; }
+
+  /* Segmented control for the input mode - same shape as the chart page's. */
+  .segmented {
+    display: flex; gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px; margin-top: 6px;
+  }
+  .segmented input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .segmented label {
+    flex: 1; text-align: center; padding: 10px 4px;
+    font-family: 'Cinzel', serif; font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.04em; color: var(--muted);
+    border-radius: 8px; cursor: pointer; user-select: none;
+    transition: 0.15s;
+  }
+  .segmented input:checked + label {
+    background: var(--primary-grad); color: var(--on-primary);
+    box-shadow: 0 4px 14px rgba(212, 175, 55, 0.35);
+  }
+  .segmented input:focus-visible + label { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  .place-row { display: flex; gap: 8px; align-items: stretch; }
+  .place-row input { flex: 1; min-width: 0; }
+  button.confirm-btn {
+    flex: 0 0 auto; padding: 0 14px;
+    background: var(--surface-2); color: var(--text);
+    font-family: 'Cinzel', serif; font-weight: 600; font-size: 12px;
+    white-space: nowrap;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    cursor: pointer; transition: border-color 0.12s, transform 0.12s;
+  }
+  button.confirm-btn:hover { border-color: var(--primary); }
+  button.confirm-btn:active { transform: scale(0.98); }
+  button.confirm-btn[disabled] { opacity: 0.6; cursor: progress; }
+
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; min-width: 0; }
+
+  /* What the chart turned out to say, shown under the birth details so the
+     figures feeding the ten checks are never hidden from the reader. */
+  .derived {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin-top: 14px; padding: 10px 12px;
+    background: rgba(212,175,55,0.07);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .derived__label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted-2); width: 100%;
+  }
+  .derived__value { font-size: 12.5px; font-weight: 700; color: var(--primary-2); }
+  .derived__value + .derived__value::before {
+    content: "·"; color: var(--muted-2); margin-right: 6px; font-weight: 400;
+  }
+
+  /* -- chart-level section ------------------------------------------------ */
+  .section-title {
+    font-family: 'Cinzel', serif; color: var(--gold);
+    font-size: 14px; font-weight: 700; letter-spacing: 0.06em;
+    margin: 12px 0 2px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before {
+    content: ""; width: 4px; height: 16px; border-radius: 3px;
+    background: var(--primary-grad); display: inline-block;
+  }
+
+  .chart-facts { display: grid; gap: 12px; }
+  @media (min-width: 720px) { .chart-facts { grid-template-columns: 1fr 1fr; } }
+  .facts-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 15px 16px;
+  }
+  .facts-card h4 {
+    font-family: 'Cinzel', serif; margin: 0 0 12px;
+    font-size: 12.5px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--gold);
+  }
+  .fact { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); }
+  .fact:first-of-type { border-top: 0; padding-top: 0; }
+  .fact__label {
+    flex: 0 0 34%; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted-2); padding-top: 2px;
+  }
+  .fact__value { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+  .fact__value .sub { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .sev { font-weight: 700; }
+  .sev.is-none { color: var(--ok); }
+  .sev.is-cancelled { color: var(--mid); }
+  .sev.is-present { color: var(--bad); }
+  .note-conditional {
+    margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--muted-2);
+    border-left: 2px solid var(--border); padding-left: 9px;
+  }
+{{ lang_switch_css }}
+</style>
+</head>
+<body>
+
+{% macro grahas(items) -%}
+  {%- if items -%}
+    {%- for g in items -%}
+      <span data-i18n-term="planet:{{ g }}">{{ term('planet', g) }}</span>
+      {{- ", " if not loop.last -}}
+    {%- endfor -%}
+  {%- else -%}
+    <span data-i18n="jathagam.p.none">{{ t('jathagam.p.none') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="app-bar">
+  <img class="app-bar__icon" src="/icon-192.png" alt="">
+  <div class="app-bar__titles">
+    <p class="app-bar__title" data-i18n="porutham.title">10 Porutham</p>
+    <p class="app-bar__subtitle" data-i18n="porutham.subtitle">Traditional Tamil marriage matching</p>
+  </div>
+  {{ lang_switch | safe }}
+  <a class="back-btn" href="/" data-i18n-attr="aria-label:porutham.back"
+     aria-label="Back to chart">&#8592; <span data-i18n="porutham.back">Back to chart</span></a>
+</div>
+
+<div class="layout">
+
+  <form class="card" method="POST" action="/porutham">
+    <p class="intro" data-i18n="porutham.intro">{{ t('porutham.intro') }}</p>
+
+    <label class="field-label" data-i18n="porutham.mode">What you have</label>
+    <div class="segmented">
+      <input type="radio" id="modeQuick" name="mode" value="quick"
+             {{ 'checked' if form.mode != 'full' else '' }}>
+      <label for="modeQuick" data-i18n="porutham.mode_quick">Star &amp; Rasi</label>
+      <input type="radio" id="modeFull" name="mode" value="full"
+             {{ 'checked' if form.mode == 'full' else '' }}>
+      <label for="modeFull" data-i18n="porutham.mode_full">Full horoscope</label>
+    </div>
+    <small class="hint" data-i18n="porutham.mode_hint">{{ t('porutham.mode_hint') }}</small>
+
+    <div class="pair-grid" style="margin-top:18px">
+      {% for side, title_key in [('groom', 'porutham.groom'), ('bride', 'porutham.bride')] %}
+        <fieldset class="person">
+          <legend class="person__title" data-i18n="{{ title_key }}">{{ t(title_key) }}</legend>
+
+          {% if saved_records %}
+            <label class="field-label" for="{{ side }}Saved" data-i18n="porutham.load_saved">Fill from a saved chart</label>
+            <select id="{{ side }}Saved" data-saved-for="{{ side }}">
+              <option value="" data-i18n="porutham.choose">{{ t('porutham.choose') }}</option>
+              {% for record in saved_records %}
+                <option value="{{ record.id }}">{{ record.name }}{% if record.city %} &middot; {{ record.city }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <small class="hint" id="{{ side }}SavedStatus" data-i18n="porutham.load_hint">{{ t('porutham.load_hint') }}</small>
+          {% endif %}
+
+          <label class="field-label" for="{{ side }}Name" data-i18n="porutham.name">Name (optional)</label>
+          <input type="text" id="{{ side }}Name" name="{{ side }}_name" value="{{ form[side + '_name'] }}">
+
+          <div data-mode="quick">
+            <label class="field-label" for="{{ side }}Star" data-i18n="porutham.star">Birth star (Nakshatra)</label>
+            <select id="{{ side }}Star" name="{{ side }}_star" data-star-for="{{ side }}" required>
+              <option value="" data-i18n="porutham.choose">{{ t('porutham.choose') }}</option>
+              {% for star in stars %}
+                <option value="{{ star }}" data-i18n-term="nakshatra:{{ star }}"
+                        {{ 'selected' if form[side + '_star'] == star else '' }}>{{ term('nakshatra', star) }}</option>
+              {% endfor %}
+            </select>
+
+            <label class="field-label" for="{{ side }}Pada" data-i18n="porutham.pada">Pada (quarter)</label>
+            <select id="{{ side }}Pada" name="{{ side }}_pada" data-pada-for="{{ side }}">
+              <option value="" data-i18n="porutham.pada_unknown">{{ t('porutham.pada_unknown') }}</option>
+              {% for pada in [1, 2, 3, 4] %}
+                <option value="{{ pada }}"
+                        {{ 'selected' if form[side + '_pada'] == pada|string else '' }}>{{ pada }}</option>
+              {% endfor %}
+            </select>
+            <small class="hint" data-i18n="porutham.pada_hint">{{ t('porutham.pada_hint') }}</small>
+
+            <label class="field-label" for="{{ side }}Rasi" data-i18n="porutham.rasi">Moon sign (Rasi)</label>
+            <select id="{{ side }}Rasi" name="{{ side }}_rasi" required>
+              <option value="" data-i18n="porutham.choose">{{ t('porutham.choose') }}</option>
+              {% for abbr, full in signs %}
+                <option value="{{ abbr }}" data-i18n-term="sign:{{ full }}"
+                        {{ 'selected' if form[side + '_rasi'] == abbr else '' }}>{{ term('sign', full) }}</option>
+              {% endfor %}
+            </select>
+            <small class="hint" data-i18n="porutham.rasi_hint">{{ t('porutham.rasi_hint') }}</small>
+          </div>
+
+          <div data-mode="full" hidden>
+            <label class="field-label" for="{{ side }}City" data-i18n="form.city">Birth city</label>
+            <div class="place-row">
+              <input type="text" id="{{ side }}City" name="{{ side }}_city" value="{{ form[side + '_city'] }}"
+                     placeholder="e.g. Mumbai, India" data-i18n-attr="placeholder:form.city_placeholder">
+              <button type="button" class="confirm-btn" data-geo-for="{{ side }}"
+                      data-i18n="form.confirm_place">Confirm place</button>
+            </div>
+            <small class="hint" id="{{ side }}GeoStatus" data-i18n="geo.idle">{{ t('geo.idle') }}</small>
+
+            <div class="row">
+              <div>
+                <label class="field-label" for="{{ side }}Date" data-i18n="form.dob">Date of birth</label>
+                <input type="date" id="{{ side }}Date" name="{{ side }}_date" value="{{ form[side + '_date'] }}" required>
+              </div>
+              <div>
+                <label class="field-label" for="{{ side }}Time" data-i18n="form.tob">Time of birth</label>
+                <input type="time" id="{{ side }}Time" name="{{ side }}_time" value="{{ form[side + '_time'] }}" required>
+              </div>
+            </div>
+
+            <div class="row">
+              <div>
+                <label class="field-label" for="{{ side }}Lat" data-i18n="form.lat">Latitude</label>
+                <input type="number" step="any" id="{{ side }}Lat" name="{{ side }}_lat" value="{{ form[side + '_lat'] }}" required>
+              </div>
+              <div>
+                <label class="field-label" for="{{ side }}Lng" data-i18n="form.lng">Longitude</label>
+                <input type="number" step="any" id="{{ side }}Lng" name="{{ side }}_lng" value="{{ form[side + '_lng'] }}" required>
+              </div>
+            </div>
+
+            <label class="field-label" for="{{ side }}Tz" data-i18n="form.tz">Timezone (IANA name)</label>
+            <input type="text" id="{{ side }}Tz" name="{{ side }}_tz" value="{{ form[side + '_tz'] }}"
+                   placeholder="Asia/Kolkata" required>
+            <small class="hint" data-i18n="form.tz_hint">{{ t('form.tz_hint') }}</small>
+
+            {% if moons and moons[side] %}
+              <div class="derived">
+                <span class="derived__label" data-i18n="porutham.derived">Read from the chart</span>
+                <span class="derived__value" data-i18n-term="nakshatra:{{ moons[side].star }}">{{ term('nakshatra', moons[side].star) }}</span>
+                <span class="derived__value">{{ moons[side].pada }}</span>
+                <span class="derived__value" data-i18n-term="sign:{{ sign_full[moons[side].rasi] }}">{{ term('sign', sign_full[moons[side].rasi]) }}</span>
+              </div>
+            {% endif %}
+          </div>
+        </fieldset>
+      {% endfor %}
+    </div>
+
+    <button type="submit" class="submit-btn" data-i18n="porutham.submit">Check Porutham</button>
+  </form>
+
+  {% if error %}
+    <div class="error" data-i18n="{{ error }}">{{ t(error) }}</div>
+  {% endif %}
+
+  {% if result %}
+    <div class="verdict-card is-{{ result.verdict }}">
+      <div class="score-ring">
+        <b>{{ result.score_label }}</b>
+        <span data-i18n="porutham.of_ten">out of 10</span>
+      </div>
+      <div class="verdict-body">
+        <h2 data-i18n="porutham.verdict.{{ result.verdict }}">{{ t('porutham.verdict.' + result.verdict) }}</h2>
+        {% if couple_label %}<p class="verdict-names">{{ couple_label }}</p>{% endif %}
+        <div class="tally">
+          <span class="t-good">{{ result.counts.good }} &middot; <span data-i18n-term="porutham_status:good">{{ term('porutham_status', 'good') }}</span></span>
+          <span class="t-medium">{{ result.counts.medium }} &middot; <span data-i18n-term="porutham_status:medium">{{ term('porutham_status', 'medium') }}</span></span>
+          <span class="t-bad">{{ result.counts.bad }} &middot; <span data-i18n-term="porutham_status:bad">{{ term('porutham_status', 'bad') }}</span></span>
+        </div>
+      </div>
+    </div>
+
+    {% if result.failed_critical %}
+      <div class="blocked-note" data-i18n="porutham.blocked_note">{{ t('porutham.blocked_note') }}</div>
+    {% endif %}
+
+    <div class="porutham-list">
+      {% for row in result.results %}
+        <div class="p-card is-{{ row.status }}">
+          <div class="p-head">
+            <div class="p-head__text">
+              <h3>
+                <span data-i18n-term="porutham:{{ row.key }}">{{ term('porutham', row.key) }}</span>
+                {% if row.critical %}<span class="critical-tag" data-i18n="porutham.critical_tag">{{ t('porutham.critical_tag') }}</span>{% endif %}
+              </h3>
+              <p class="p-about" data-i18n-term="porutham_about:{{ row.key }}">{{ term('porutham_about', row.key) }}</p>
+            </div>
+            <span class="badge is-{{ row.status }}" data-i18n-term="porutham_status:{{ row.status }}">{{ term('porutham_status', row.status) }}</span>
+          </div>
+
+          {% if row.chips %}
+            <div class="chips">
+              {% for chip in row.chips %}
+                <span class="chip">
+                  <span class="chip__label" data-i18n="{{ chip.label }}">{{ t(chip.label) }}</span>
+                  {% if chip.term %}
+                    <span class="chip__value" data-i18n-term="{{ chip.term }}:{{ chip.value }}">{{ term(chip.term, chip.value) }}</span>
+                  {% else %}
+                    <span class="chip__value">{{ chip.value }}</span>
+                  {% endif %}
+                </span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <p class="p-reason" data-i18n="{{ row.reason }}">{{ t(row.reason) }}</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    <small class="footnote" data-i18n="porutham.footnote">{{ t('porutham.footnote') }}</small>
+  {% endif %}
+
+  {% if chart_match %}
+    <div class="section-title"><span data-i18n="jathagam.section">{{ t('jathagam.section') }}</span></div>
+    <small class="hint" data-i18n="jathagam.intro">{{ t('jathagam.intro') }}</small>
+
+    <div class="porutham-list">
+      {% for check in chart_match.checks %}
+        <div class="p-card is-{{ check.status }}">
+          <div class="p-head">
+            <div class="p-head__text">
+              <h3 data-i18n-term="jathagam_check:{{ check.key }}">{{ term('jathagam_check', check.key) }}</h3>
+              <p class="p-about" data-i18n-term="jathagam_about:{{ check.key }}">{{ term('jathagam_about', check.key) }}</p>
+            </div>
+            <span class="badge is-{{ check.status }}" data-i18n-term="porutham_status:{{ check.status }}">{{ term('porutham_status', check.status) }}</span>
+          </div>
+          <p class="p-reason" data-i18n="{{ check.reason }}">{{ t(check.reason) }}</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="section-title"><span data-i18n="jathagam.per_person">{{ t('jathagam.per_person') }}</span></div>
+    <div class="chart-facts">
+      {% for side in sides %}
+        {% set person = chart_match[side] %}
+        <div class="facts-card">
+          <h4 data-i18n="porutham.{{ side }}">{{ t('porutham.' + side) }}</h4>
+
+          <div class="fact">
+            <span class="fact__label" data-i18n="jathagam.p.sevvai">{{ t('jathagam.p.sevvai') }}</span>
+            <span class="fact__value">
+              <span class="sev is-{{ person.sevvai.severity }}"
+                    data-i18n-term="jathagam_severity:{{ person.sevvai.severity }}">{{ term('jathagam_severity', person.sevvai.severity) }}</span>
+              {% if person.sevvai.hits %}
+                <span class="sub">
+                  {% for ref, house in person.sevvai.hits.items() %}
+                    <span data-i18n-term="reference:{{ ref }}">{{ term('reference', ref) }}</span>
+                    <b data-i18n-ordinal="{{ house }}">{{ ordinal(house) }}</b>{{ " · " if not loop.last }}
+                  {% endfor %}
+                </span>
+              {% endif %}
+              {% if person.sevvai.cancellations %}
+                <span class="sub">
+                  {% for key in person.sevvai.cancellations %}
+                    <span data-i18n="{{ key }}">{{ t(key) }}</span>
+                  {% endfor %}
+                </span>
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="fact">
+            <span class="fact__label" data-i18n="jathagam.p.mars">{{ t('jathagam.p.mars') }}</span>
+            <span class="fact__value">
+              <span data-i18n-term="sign:{{ sign_full[person.sevvai.mars_sign] }}">{{ term('sign', sign_full[person.sevvai.mars_sign]) }}</span>
+              <span class="sub" data-i18n-term="dignity:{{ person.sevvai.mars_dignity }}">{{ term('dignity', person.sevvai.mars_dignity) }}</span>
+            </span>
+          </div>
+
+          <div class="fact">
+            <span class="fact__label" data-i18n="jathagam.p.seventh">{{ t('jathagam.p.seventh') }}</span>
+            <span class="fact__value">
+              <span data-i18n-term="sign:{{ sign_full[person.seventh.sign] }}">{{ term('sign', sign_full[person.seventh.sign]) }}</span>
+              <span class="sub"><span data-i18n="jathagam.p.occupants">{{ t('jathagam.p.occupants') }}</span>: {{ grahas(person.seventh.occupants) }}</span>
+              <span class="sub"><span data-i18n="jathagam.p.aspected_by">{{ t('jathagam.p.aspected_by') }}</span>: {{ grahas(person.seventh.aspected_by) }}</span>
+            </span>
+          </div>
+
+          <div class="fact">
+            <span class="fact__label" data-i18n="jathagam.p.seventh_lord">{{ t('jathagam.p.seventh_lord') }}</span>
+            <span class="fact__value">
+              <span data-i18n-term="planet:{{ person.seventh.lord }}">{{ term('planet', person.seventh.lord) }}</span>
+              {% if person.seventh.lord_sign %}
+                <span class="sub">
+                  <span data-i18n-term="sign:{{ sign_full[person.seventh.lord_sign] }}">{{ term('sign', sign_full[person.seventh.lord_sign]) }}</span>
+                  &middot; <b data-i18n-ordinal="{{ person.seventh.lord_house }}">{{ ordinal(person.seventh.lord_house) }}</b>
+                  <span data-i18n="jathagam.p.house">{{ t('jathagam.p.house') }}</span>
+                  &middot; <span data-i18n-term="dignity:{{ person.seventh.lord_dignity }}">{{ term('dignity', person.seventh.lord_dignity) }}</span>
+                </span>
+              {% endif %}
+            </span>
+          </div>
+
+          {% for karaka_key, karaka in [('venus', person.venus), ('jupiter', person.jupiter)] %}
+            {% if karaka %}
+              <div class="fact">
+                <span class="fact__label" data-i18n="jathagam.p.{{ karaka_key }}">{{ t('jathagam.p.' + karaka_key) }}</span>
+                <span class="fact__value">
+                  <span data-i18n-term="sign:{{ sign_full[karaka.sign] }}">{{ term('sign', sign_full[karaka.sign]) }}</span>
+                  <span class="sub">
+                    <b data-i18n-ordinal="{{ karaka.house }}">{{ ordinal(karaka.house) }}</b>
+                    <span data-i18n="jathagam.p.house">{{ t('jathagam.p.house') }}</span>
+                    &middot; <span data-i18n-term="dignity:{{ karaka.dignity }}">{{ term('dignity', karaka.dignity) }}</span>
+                  </span>
+                  <span class="sub"><span data-i18n="jathagam.p.afflicted_by">{{ t('jathagam.p.afflicted_by') }}</span>: {{ grahas(karaka.afflicted_by) }}</span>
+                </span>
+              </div>
+            {% endif %}
+          {% endfor %}
+
+          {% if person.seventh.conditional %}
+            <p class="note-conditional" data-i18n="jathagam.p.conditional">{{ t('jathagam.p.conditional') }}</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <small class="footnote" data-i18n="jathagam.footnote">{{ t('jathagam.footnote') }}</small>
+  {% endif %}
+
+</div>
+
+<script>
+  // A nakshatra spans 13\u00b020', a rashi 30\u00b0, so each star falls in only one
+  // or two signs. Narrowing the rashi dropdown to those keeps the form from
+  // accepting a pairing the sky cannot produce (the POST re-checks anyway).
+  const SIGNS_FOR_STAR = {{ signs_for_star | safe }};
+
+  // Pada 1-4 of a star each occupy a definite sign, so a known pada picks
+  // the rashi outright instead of narrowing it.
+  const SIGN_BY_PADA = {{ sign_by_pada | safe }};
+
+  // Which half of the form is live. The hidden half is disabled rather than
+  // merely hidden, so its inputs neither submit nor block submission on a
+  // "required" field nobody can see.
+  (function () {
+    const panels = document.querySelectorAll("[data-mode]");
+    function applyMode() {
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      panels.forEach(function (panel) {
+        const live = panel.getAttribute("data-mode") === mode;
+        panel.hidden = !live;
+        panel.querySelectorAll("input, select").forEach(function (field) {
+          field.disabled = !live;
+        });
+      });
+    }
+    document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
+      radio.addEventListener("change", applyMode);
+    });
+    applyMode();
+  })();
+
+  document.querySelectorAll("[data-pada-for]").forEach(function (padaSelect) {
+    const side = padaSelect.getAttribute("data-pada-for");
+    const starSelect = document.getElementById(side + "Star");
+    const rasiSelect = document.getElementById(side + "Rasi");
+
+    padaSelect.addEventListener("change", function () {
+      const padas = SIGN_BY_PADA[starSelect.value];
+      if (!padas || !padaSelect.value) return;
+      rasiSelect.value = padas[Number(padaSelect.value) - 1];
+    });
+  });
+
+  document.querySelectorAll("[data-star-for]").forEach(function (starSelect) {
+    const side = starSelect.getAttribute("data-star-for");
+    const rasiSelect = document.getElementById(side + "Rasi");
+    const padaSelect = document.getElementById(side + "Pada");
+
+    function narrowRashis() {
+      // A star change invalidates whichever pada was picked for the old one.
+      if (padaSelect && padaSelect.value &&
+          rasiSelect.value !== (SIGN_BY_PADA[starSelect.value] || [])[Number(padaSelect.value) - 1]) {
+        padaSelect.value = "";
+      }
+      const allowed = SIGNS_FOR_STAR[starSelect.value] || null;
+      Array.prototype.forEach.call(rasiSelect.options, function (option) {
+        // The "Choose..." option carries no value and always stays.
+        const offer = !option.value || !allowed || allowed.indexOf(option.value) !== -1;
+        option.hidden = !offer;
+        option.disabled = !offer;
+      });
+      if (allowed && allowed.indexOf(rasiSelect.value) === -1) {
+        // One possible sign is the common case - fill it in rather than
+        // making someone pick the only answer left.
+        rasiSelect.value = allowed.length === 1 ? allowed[0] : "";
+      }
+    }
+
+    starSelect.addEventListener("change", narrowRashis);
+    narrowRashis();  // a re-rendered form arrives with a star already picked
+  });
+
+  // "Confirm place" for each person, against the same /geocode endpoint the
+  // chart page uses. Coordinates stay editable either way.
+  document.querySelectorAll("[data-geo-for]").forEach(function (button) {
+    const side = button.getAttribute("data-geo-for");
+    const cityField = document.getElementById(side + "City");
+    const status = document.getElementById(side + "GeoStatus");
+
+    function say(key) {
+      status.setAttribute("data-i18n", key);
+      status.textContent = window.I18N.t(key);
+    }
+
+    button.addEventListener("click", function () {
+      const place = cityField.value.trim();
+      if (!place) { say("geo.need_city"); return; }
+
+      button.disabled = true;
+      status.removeAttribute("data-i18n");
+      status.textContent = window.I18N.t("geo.looking", { place: place });
+
+      const body = new URLSearchParams();
+      body.set("place", place);
+      fetch("/geocode", { method: "POST", body: body })
+        .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, d: d }; }); })
+        .then(function (r) {
+          if (!r.ok) { say("geo.failed"); return; }
+          document.getElementById(side + "Lat").value = r.d.lat;
+          document.getElementById(side + "Lng").value = r.d.lng;
+          // The resolved address is the server's words, not a translatable
+          // string, so it is set directly and the key cleared.
+          status.removeAttribute("data-i18n");
+          status.textContent = r.d.address || "";
+        })
+        .catch(function () { say("geo.offline"); })
+        .finally(function () { button.disabled = false; });
+    });
+  });
+
+  // "Fill from a saved chart": look up the Moon's star and sign for a stored
+  // birth record and drop them into that side's two dropdowns. Only rendered
+  // when an admin session is active, since it lists saved people by name.
+  document.querySelectorAll("[data-saved-for]").forEach(function (picker) {
+    const side = picker.getAttribute("data-saved-for");
+    const status = document.getElementById(side + "SavedStatus");
+
+    picker.addEventListener("change", function () {
+      if (!picker.value) return;
+      fetch("/porutham/saved/" + encodeURIComponent(picker.value))
+        .then(function (res) {
+          if (!res.ok) throw new Error("lookup failed");
+          return res.json();
+        })
+        .then(function (data) {
+          document.getElementById(side + "Star").value = data.nakshatra;
+          document.getElementById(side + "Rasi").value = data.rasi;
+          const padaField = document.getElementById(side + "Pada");
+          if (padaField && data.pada) padaField.value = String(data.pada);
+          // The stored record has the full birth details too, so the other
+          // mode is filled in at the same time.
+          [["City", "city"], ["Date", "date"], ["Time", "time"],
+           ["Lat", "lat"], ["Lng", "lng"], ["Tz", "tz"]].forEach(function (pair) {
+            const field = document.getElementById(side + pair[0]);
+            if (field && data[pair[1]]) field.value = data[pair[1]];
+          });
+          const nameField = document.getElementById(side + "Name");
+          if (nameField && !nameField.value) nameField.value = data.name || "";
+          status.classList.remove("bad");
+          // Hand the hint back to the translator so a language switch
+          // doesn't leave a stale sentence behind.
+          status.setAttribute("data-i18n", "porutham.load_hint");
+          status.textContent = window.I18N.t("porutham.load_hint");
+        })
+        .catch(function () {
+          status.classList.add("bad");
+          status.setAttribute("data-i18n", "porutham.load_failed");
+          status.textContent = window.I18N.t("porutham.load_failed");
+        });
+    });
+  });
+</script>
+
+</body>
+</html>
+"""
+
+
+def render_porutham(form, result=None, error=None, couple_label=None,
+                    chart_match=None, moons=None):
+    """One render call for every state this page has - empty, error, result."""
+    return render_template_string(
+        PORUTHAM_TEMPLATE,
+        form=form,
+        result=result,
+        error=error,
+        couple_label=couple_label,
+        chart_match=chart_match,
+        moons=moons,
+        sides=PORUTHAM_SIDES,
+        stars=PORUTHAM_STAR_OPTIONS,
+        signs=PORUTHAM_SIGN_OPTIONS,
+        sign_full=SIGN_NAME_FULL,
+        signs_for_star=json.dumps(porutham.SIGNS_FOR_STAR),
+        sign_by_pada=json.dumps(porutham.SIGN_BY_PADA),
+        # Saved charts are people's birth details, so the picker only shows
+        # up for a signed-in admin - same bar as the /admin panel itself.
+        saved_records=storage.list_birth_records() if session.get("is_admin") else None,
+    )
+
+
+@app.route("/porutham", methods=["GET", "POST"])
+def porutham_page():
+    if request.method == "GET":
+        return render_porutham(dict(EMPTY_PORUTHAM_FORM))
+
+    form = read_porutham_form(request)
+    moons, chart_match = None, None
+
+    if form["mode"] == "full":
+        # Full horoscope: the star, pada and rashi come off each chart, and
+        # the chart-level checks come with them.
+        try:
+            moons, charts = build_porutham_charts(form)
+        except ValueError:
+            return render_porutham(form, error="porutham.need_birth")
+        except Exception:
+            # A bad timezone name, an impossible date, unusable coordinates -
+            # all of them surface the same "check these details" message.
+            return render_porutham(form, error="porutham.bad_birth")
+
+        chart_match = jathagam.compare(charts["groom"], charts["bride"])
+        picks = {side: (moons[side]["star"], moons[side]["rasi"], moons[side]["pada"])
+                 for side in PORUTHAM_SIDES}
+    else:
+        for side in PORUTHAM_SIDES:
+            star, rasi = form[f"{side}_star"], form[f"{side}_rasi"]
+            if star and rasi and not porutham.is_possible_pairing(star, rasi):
+                return render_porutham(form, error="porutham.impossible")
+        picks = {side: (form[f"{side}_star"], form[f"{side}_rasi"],
+                        porutham_pada(form, side))
+                 for side in PORUTHAM_SIDES}
+
+    try:
+        result = porutham.match(
+            groom_star=picks["groom"][0], groom_sign=picks["groom"][1],
+            bride_star=picks["bride"][0], bride_sign=picks["bride"][1],
+            groom_pada=picks["groom"][2], bride_pada=picks["bride"][2],
+        )
+    except ValueError:
+        # Either dropdown left on "Choose...", or a hand-edited value - the
+        # same message covers both, since the fix is the same.
+        return render_porutham(form, error="porutham.need_both")
+
+    # Only worth a line above the verdict if the names were actually filled in.
+    names = [form["groom_name"], form["bride_name"]]
+    couple_label = " — ".join(n for n in names if n) if all(names) else None
+
+    return render_porutham(form, result=result, couple_label=couple_label,
+                           chart_match=chart_match, moons=moons)
+
+
+@app.route("/porutham/saved/<int:record_id>")
+@admin_required
+def porutham_saved_record(record_id):
+    """The Moon's nakshatra and rashi for one saved birth record, as JSON.
+
+    Recomputed from the stored birth details rather than cached - it is the
+    same quick ephemeris call /generate makes, and it keeps this endpoint
+    honest if a record's coordinates or timezone are ever corrected.
+    """
+    record = storage.get_birth_record(record_id)
+    if not record:
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        year, month, day = (int(x) for x in record["date"].split("-"))
+        hour, minute = (int(x) for x in record["time"].split(":"))
+        subject = build_vedic_subject(
+            name=record["name"],
+            year=year, month=month, day=day, hour=hour, minute=minute,
+            lat=float(record["lat"]), lng=float(record["lng"]),
+            tz_str=record["tz"], city=record["city"] or "Unknown",
+        )
+        moon = moon_details(subject)
+    except Exception:
+        # Incomplete or malformed stored details - the page falls back to
+        # its "could not read that saved chart" hint.
+        return jsonify({"error": "unusable record"}), 422
+
+    # The Moon's details drive the quick mode; the stored birth details fill
+    # the full-horoscope mode, so one pick serves whichever half is showing.
+    return jsonify({
+        "name": record["name"],
+        "nakshatra": moon["star"],
+        "pada": moon["pada"],
+        "rasi": moon["rasi"],
+        **{field: record[field] or "" for field in PORUTHAM_BIRTH_FIELDS},
+    })
+
 
 # ---------------------------------------------------------------------------
 # Admin panel: password-gated login + a card view of every saved record.
