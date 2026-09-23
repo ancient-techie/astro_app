@@ -204,7 +204,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v12";
+const CACHE_NAME = "vedic-chart-v14";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -238,6 +238,25 @@ self.addEventListener("fetch", (event) => {
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).catch(() => caches.match("/"))
+    );
+    return;
+  }
+
+  // /i18n.js is generated from i18n.py and changes whenever any string does.
+  // Cache-first let a stale copy outlive the strings it holds, and every
+  // label whose key it did not know fell back to printing that raw key -
+  // which meant remembering to bump CACHE_NAME on every translation edit.
+  // Network-first removes that footgun and still works offline.
+  const url = new URL(req.url);
+  if (url.origin === self.location.origin && url.pathname === "/i18n.js") {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }
@@ -575,6 +594,15 @@ app.jinja_env.globals["ordinal"] = i18n.ordinal
 _PLAYGROUND_HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart_playground.html")
 with open(_PLAYGROUND_HTML_PATH, "r", encoding="utf-8") as _f:
     PLAYGROUND_HTML = _f.read()
+
+# The Strength (Balam) tab's panel. Same trick for the same reason: it is a
+# large slab of HTML/CSS/JS, and keeping it in its own file spares it the
+# backslash-and-brace escaping that PAGE_TEMPLATE's three string layers
+# impose. It is injected with {{ strength_panel | safe }}, which Jinja does
+# not re-parse, so its ${...} template literals arrive intact.
+_STRENGTH_PANEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strength_panel.html")
+with open(_STRENGTH_PANEL_PATH, "r", encoding="utf-8") as _f:
+    STRENGTH_PANEL_HTML = _f.read()
 
 
 @app.route("/play-with-chart")
@@ -1908,7 +1936,52 @@ PAGE_TEMPLATE = """
       padding-top: 28px;
     }
     .form-card { position: sticky; top: 92px; }
+    /* Collapsed, the form is a thin bar across the top and the results get
+       the whole width - which is the point of collapsing it. */
+    .layout.form-collapsed { grid-template-columns: 1fr; }
+    .layout.form-collapsed .form-card { position: static; }
   }
+
+  /* The birth-details form folds away once a chart exists: the meta card
+     already repeats the name and date, so nothing is lost by hiding it. */
+  .form-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .form-card.collapsed .form-body { display: none; }
+  .form-card:not(.collapsed) .form-head { margin-bottom: 16px; }
+  .form-card:not(.collapsed) .form-summary { display: none; }
+  .form-summary {
+    font-size: 12.5px;
+    color: var(--muted);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .form-summary b { color: var(--text); }
+  .form-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 7px 15px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--primary-2);
+    background: rgba(212,175,55,0.08);
+    border: 1.5px solid rgba(212,175,55,0.45);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .form-toggle:hover { background: rgba(212,175,55,0.18); color: #ffe060; }
+  .form-toggle-icon { transition: transform 0.2s; }
+  .form-card.collapsed .form-toggle-icon { transform: rotate(-90deg); }
 
   .card {
     background: var(--surface);
@@ -2560,6 +2633,38 @@ PAGE_TEMPLATE = """
   .chart-svg[data-lang-svg] { display: none; }
   html[data-lang="en"] .chart-svg[data-lang-svg="en"],
   html[data-lang="ta"] .chart-svg[data-lang-svg="ta"] { display: block; }
+
+  /* Results tabs. The Chart pane holds everything this page has always
+     shown; the Strength pane holds strength_panel.html, which scores the
+     natal chart against the gochar of a tapped dasha period. */
+  .result-tabs {
+    display: flex;
+    gap: 6px;
+    margin: 22px 0 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .result-tab {
+    flex: 1;
+    padding: 11px 14px;
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+  .result-tab:hover { color: var(--primary-2); }
+  .result-tab.active-tab {
+    color: var(--on-primary);
+    background: var(--primary-grad);
+  }
+  .tab-pane { display: none; }
+  .tab-pane.active-pane { display: block; }
 {{ lang_switch_css }}
 </style>
 </head>
@@ -2577,8 +2682,19 @@ PAGE_TEMPLATE = """
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
 
-<div class="layout">
-  <form class="card form-card" method="POST" action="/generate">
+<div class="layout{% if charts %} form-collapsed{% endif %}">
+  <form class="card form-card{% if charts %} collapsed{% endif %}" method="POST" action="/generate">
+    {% if charts %}
+    <div class="form-head">
+      <div class="form-summary" id="formSummary"></div>
+      <button type="button" class="form-toggle" id="formToggle"
+              aria-expanded="false" aria-controls="formBody">
+        <span class="form-toggle-icon">&#9662;</span>
+        <span class="form-toggle-text" data-i18n="form.expand">Edit details</span>
+      </button>
+    </div>
+    {% endif %}
+    <div class="form-body" id="formBody">
     <label class="field-label" for="name" data-i18n="form.name">Name</label>
     <input type="text" id="name" name="name" value="{{ form.name }}" required>
 
@@ -2633,6 +2749,7 @@ PAGE_TEMPLATE = """
     <button type="submit" class="submit-btn" data-i18n="form.submit">Generate Chart</button>
     <button type="button" id="saveDetailsBtn" class="save-btn" data-i18n="form.save">Save details</button>
     <small class="save-status" id="saveStatus" data-i18n="save.idle">Saves this person's details so they show up in the admin panel - doesn't generate a chart.</small>
+    </div><!-- /form-body -->
   </form>
 
   <div class="results">
@@ -2662,6 +2779,14 @@ PAGE_TEMPLATE = """
         </form>
       </div>
 
+      <div class="result-tabs" role="tablist">
+        <button type="button" class="result-tab active-tab" role="tab" aria-selected="true"
+                data-pane-tab="chart" data-i18n="st.tab_chart">Chart</button>
+        <button type="button" class="result-tab" role="tab" aria-selected="false"
+                data-pane-tab="strength" data-i18n="st.tab_strength">Strength</button>
+      </div>
+
+      <div class="tab-pane active-pane" data-pane="chart">
       <div class="charts-grid">
         {% for card in charts %}
           <div class="chart-card">
@@ -2848,6 +2973,12 @@ PAGE_TEMPLATE = """
       {% else %}
       <div class="houses-box"><div class="placeholder-small" data-i18n="conj_sign.none">No two bodies share a sign in this chart.</div></div>
       {% endif %}
+      </div><!-- /tab-pane chart -->
+
+      <div class="tab-pane" data-pane="strength">
+        <script id="strengthNatalData" type="application/json">{{ natal_positions_json | safe }}</script>
+        {{ strength_panel | safe }}
+      </div>
 
       <script>
         (function () {
@@ -2972,20 +3103,50 @@ PAGE_TEMPLATE = """
 
           // Mahadasha -> Antardasha -> Pratyantardasha running today, as the
           // same {role, label, start, end} chain a row tap produces.
-          function currentChain(today) {
-            const maha = tbody.querySelector("tr.dasha-row.level-0.dasha-current");
+          // computeSubPeriods is pure, so the nine children of a given period
+          // are the same whoever asks; memoising them keeps chainAt cheap
+          // enough to run once per sample on a 366-point curve.
+          const subPeriodMemo = new Map();
+          function subPeriodsOf(lord, start, years) {
+            const key = lord + "|" + start + "|" + years;
+            if (!subPeriodMemo.has(key)) {
+              subPeriodMemo.set(key, computeSubPeriods(lord, start, years));
+            }
+            return subPeriodMemo.get(key);
+          }
+
+          // The chain of lords running on any given date, as deep as asked
+          // for: Mahadasha, then its Antardasha, and so on down.
+          function chainAt(iso, depth) {
+            const maha = Array.prototype.find.call(
+              tbody.querySelectorAll("tr.dasha-row.level-0"),
+              (r) => r.dataset.start <= iso && iso < r.dataset.end
+            );
             if (!maha) return null;
             const chain = lordChain(maha);
             let parent = { lord: maha.dataset.lord, start: maha.dataset.start, years: parseFloat(maha.dataset.years) };
-            for (let level = 1; level <= 2; level++) {
-              const sub = computeSubPeriods(parent.lord, parent.start, parent.years)
-                .find((p) => p.start <= today && today < p.end);
+            const deepest = Math.min(Math.max(depth || 3, 1), LEVEL_ROLES.length) - 1;
+            for (let level = 1; level <= deepest; level++) {
+              const sub = subPeriodsOf(parent.lord, parent.start, parent.years)
+                .find((p) => p.start <= iso && iso < p.end);
               if (!sub) break;
               chain.push({ role: LEVEL_ROLES[level], label: sub.lord, start: sub.start, end: sub.end });
               parent = sub;
             }
             return chain;
           }
+
+          function currentChain(today) {
+            const maha = tbody.querySelector("tr.dasha-row.level-0.dasha-current");
+            if (!maha) return null;
+            return chainAt(today, 3);
+          }
+
+          // The Strength tab's slider reads these: as its date moves, the
+          // dasha, bhukti and antara running on that date move with it.
+          window.strengthChainAt = chainAt;
+          window.strengthChainsAt = (isoList, depth) =>
+            isoList.map((iso) => chainAt(iso, depth));
 
           // The 2nd lord (kudumba sthana) - the classical graha whose lordship
           // includes the 2nd house.
@@ -3517,6 +3678,9 @@ PAGE_TEMPLATE = """
             // a Sookshma tap hands them that row's three ancestors rather than
             // a fourth lord they have no rule for.
             updateGocharBox(chain);
+            if (typeof window.setStrengthPeriod === "function") {
+              window.setStrengthPeriod(chain);
+            }
             const boxChain = chain.slice(0, HOUSES_BOX_MAX_LEVEL + 1);
             updateHousesBox(boxChain);
             updateMarriageBox(boxChain, false);
@@ -3544,6 +3708,9 @@ PAGE_TEMPLATE = """
           updateMarriageBox(currentChain(todayISO()), true);
           // Opens on the period running today, with today's date preselected.
           updateGocharBox(currentChain(todayISO()));
+          if (typeof window.setStrengthPeriod === "function") {
+            window.setStrengthPeriod(currentChain(todayISO()));
+          }
         })();
       </script>
     {% else %}
@@ -3727,6 +3894,88 @@ PAGE_TEMPLATE = """
     window.addEventListener("appinstalled", () => {
       installBtn.classList.remove("visible");
     });
+  })();
+
+  // Collapse/expand the birth-details form. It starts collapsed whenever a
+  // chart is on screen, so the results get the full width; the choice is
+  // remembered per browser, because someone comparing several charts in a row
+  // will want the opposite of someone reading one.
+  (function () {
+    const toggle = document.getElementById("formToggle");
+    const card = document.querySelector(".form-card");
+    const layout = document.querySelector(".layout");
+    const summary = document.getElementById("formSummary");
+    if (!toggle || !card || !layout) return;
+    const KEY = "vedic-form-collapsed";
+
+    // Reads the inputs, not the server's values: this line describes what the
+    // form currently holds, which is what you want before deciding to open it.
+    function refreshSummary() {
+      if (!summary) return;
+      const val = (id) => (document.getElementById(id) || {}).value || "";
+      const name = val("name").trim();
+      const bits = [val("date"), val("time")].filter(Boolean).join(" ");
+      const city = val("city").trim();
+      const parts = [];
+      if (name) parts.push("<b>" + escapeHtml(name) + "</b>");
+      if (bits) parts.push(escapeHtml(bits));
+      if (city) parts.push(escapeHtml(city));
+      summary.innerHTML = parts.join(" &middot; ") || I18N.t("form.summary_empty");
+    }
+    function escapeHtml(t) {
+      return t.replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    function setCollapsed(on) {
+      card.classList.toggle("collapsed", on);
+      layout.classList.toggle("form-collapsed", on);
+      toggle.setAttribute("aria-expanded", String(!on));
+      const label = toggle.querySelector(".form-toggle-text");
+      if (label) {
+        label.setAttribute("data-i18n", on ? "form.expand" : "form.collapse");
+        label.textContent = I18N.t(on ? "form.expand" : "form.collapse");
+      }
+      if (on) refreshSummary();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+
+    let stored = null;
+    try { stored = localStorage.getItem(KEY); } catch (e) {}
+    setCollapsed(stored === null ? card.classList.contains("collapsed") : stored === "1");
+
+    toggle.addEventListener("click", () =>
+      setCollapsed(!card.classList.contains("collapsed")));
+    document.querySelector(".form-body")?.addEventListener("input", refreshSummary);
+    // The summary is built by interpolation, so apply() cannot rebuild it.
+    I18N.onChange(refreshSummary);
+  })();
+
+  // Results tabs. Kept out of the big dasha IIFE so the Strength pane can
+  // still be opened from anywhere on the page, and so a tap on a dasha row -
+  // which expands the tree - never yanks the reader to another tab.
+  (function () {
+    const tabs = document.querySelector(".result-tabs");
+    if (!tabs) return;
+    const panes = document.querySelectorAll(".tab-pane");
+
+    function showPane(name) {
+      tabs.querySelectorAll("[data-pane-tab]").forEach((b) => {
+        const on = b.dataset.paneTab === name;
+        b.classList.toggle("active-tab", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      panes.forEach((p) => p.classList.toggle("active-pane", p.dataset.pane === name));
+      // The charts inside the Strength pane are laid out with JS that needs
+      // real measurements, which a display:none subtree cannot give.
+      if (name === "strength") window.dispatchEvent(new Event("resize"));
+    }
+
+    tabs.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pane-tab]");
+      if (btn) showPane(btn.dataset.paneTab);
+    });
+    window.showResultPane = showPane;
   })();
 
   // After generating a chart, smoothly bring the results into view -
@@ -5123,6 +5372,7 @@ def build_chart_context(form):
         "marriage_links": marriage_links,
         "marriage_json": json.dumps(marriage_links),
         "playground_url": build_playground_url(subject),
+        "natal_positions_json": json.dumps(build_rashi_positions(subject)),
     }
 
 
@@ -5146,6 +5396,8 @@ def generate():
             marriage_json=ctx["marriage_json"],
             conjunctions=ctx["conjunctions"], sign_conjunctions=ctx["sign_conjunctions"],
             playground_url=ctx["playground_url"],
+            natal_positions_json=ctx["natal_positions_json"],
+            strength_panel=STRENGTH_PANEL_HTML,
         )
 
     except Exception as e:
@@ -5154,6 +5406,7 @@ def generate():
             navamsa_ascendant=None, star_table=None, dasha_table=None, dasha_house_json="{}",
             marriage_json="{}",
             conjunctions=None, sign_conjunctions=None, playground_url=None,
+            natal_positions_json="{}", strength_panel="",
         )
 
 
@@ -5189,6 +5442,82 @@ def gochar():
         # The birth details came from a chart the server already rendered, so
         # a failure here is almost always the date itself - out of the
         # ephemeris' range, or a day the transit subject can't be built for.
+        return jsonify({"error": "gochar.err_generic", "detail": str(e)}), 400
+
+
+# The Strength tab scrubs a date across a whole dasha period, so it needs
+# transit positions far more often than /gochar can afford to give them -
+# that route renders 2 references x 2 languages x 2 charts of SVG per call.
+# This one builds the same transit subjects and returns signs only, which
+# costs well under a millisecond each, and lets one request cover an entire
+# period's timeline.
+_TRANSIT_MAX_SAMPLES = 366
+
+
+def _transit_positions_at(form, iso_date, hhmm):
+    """Rashi signs of the nine grahas (plus the transit Ascendant) on a date."""
+    year, month, day = (int(part) for part in iso_date.split("-"))
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    subject = build_vedic_subject(
+        name=form["name"] or "Chart", year=year, month=month, day=day,
+        hour=hour, minute=minute, lat=float(form["lat"]), lng=float(form["lng"]),
+        tz_str=form["tz"], city=form["city"] or "Unknown",
+    )
+    return build_rashi_positions(subject)
+
+
+@app.route("/transit-positions", methods=["POST"])
+def transit_positions():
+    """Transit signs for one date, and optionally a sampled span of dates."""
+    payload = request.get_json(silent=True) or {}
+
+    exact_date = str(payload.get("exact_date", "")).strip()
+    start = str(payload.get("period_start", "")).strip()
+    end = str(payload.get("period_end", "")).strip()
+    # Read from its own field, never from the payload's "time" - that one is
+    # the birth time, and using it would put this route's transits at a
+    # different hour than /gochar's for the same date.
+    hhmm = str(payload.get("transit_time", "")).strip() or GOCHAR_DEFAULT_TIME
+    if not _ISO_TIME_RE.match(hhmm):
+        return jsonify({"error": "gochar.err_bad_time"}), 400
+    for value in (exact_date, start, end):
+        if not _ISO_DATE_RE.match(value):
+            return jsonify({"error": "gochar.err_bad_date"}), 400
+
+    form = {
+        field: str(payload.get(field, "")).strip()
+        for field in ("name", "city", "date", "time", "lat", "lng", "tz", "style")
+    }
+
+    from datetime import datetime as _dt, timedelta
+
+    try:
+        start_dt = _dt.strptime(start, "%Y-%m-%d")
+        end_dt = _dt.strptime(end, "%Y-%m-%d")
+        result = {"exact": {"date": exact_date,
+                            "positions": _transit_positions_at(form, exact_date, hhmm)}}
+
+        if payload.get("timeline"):
+            # Evenly spaced samples, capped so a 20-year Mahadasha costs the
+            # same as a 20-day Sookshma. The spacing is reported back because
+            # it is the honest resolution of the curve drawn from it: fine
+            # for Jupiter and Saturn, far coarser than the Moon's 2.25 days
+            # per sign. The scrubbed date is always fetched exactly, above.
+            span_days = max((end_dt - start_dt).days, 0)
+            count = max(min(span_days + 1, _TRANSIT_MAX_SAMPLES), 2)
+            step = span_days / (count - 1) if span_days else 0
+            samples = []
+            for i in range(count):
+                day = start_dt + timedelta(days=round(i * step))
+                iso = day.strftime("%Y-%m-%d")
+                samples.append({"date": iso,
+                                "positions": _transit_positions_at(form, iso, hhmm)})
+            result["timeline"] = {
+                "samples": samples,
+                "sample_days": max(round(step), 1) if span_days else 1,
+            }
+        return jsonify(result)
+    except Exception as e:
         return jsonify({"error": "gochar.err_generic", "detail": str(e)}), 400
 
 
