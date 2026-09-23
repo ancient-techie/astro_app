@@ -531,6 +531,7 @@
 #strengthPanel .st-graha-picker{margin:10px 0 6px 26px}
 #strengthPanel .st-graha-picker-label{font-family:'Cinzel',serif;font-size:9.5px;letter-spacing:.07em;
   color:var(--muted-2);margin-bottom:5px;text-transform:uppercase}
+#strengthPanel .st-chain-follows{margin:0 0 7px;max-width:88ch}
 #strengthPanel .st-graha-chips{display:flex;flex-wrap:wrap;gap:5px}
 #strengthPanel .st-graha-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;
   font-family:'Lato',sans-serif;font-size:10px;color:rgba(224,213,197,.55);
@@ -679,6 +680,12 @@
       <input type="range" class="st-slider" min="0" max="0" value="0"
              data-i18n-attr="aria-label:st.slider_label">
       <input type="date" class="st-date" data-i18n-attr="aria-label:st.date_label">
+      <span class="st-frame st-scope" role="group" data-i18n-attr="aria-label:st.scope_label">
+        <button type="button" data-st-scope="full" aria-pressed="true"
+                data-i18n="st.scope_full">Whole life</button>
+        <button type="button" data-st-scope="period" aria-pressed="false"
+                data-i18n="st.scope_period">This period</button>
+      </span>
       <span class="st-frame" role="group" data-i18n-attr="aria-label:st.frame_label">
         <button type="button" data-st-frame="lagna" aria-pressed="true"
                 data-i18n="st.frame_lagna">From Lagna</button>
@@ -3014,6 +3021,11 @@ function stBar(pct,bg,height){
   let sparkPicked = null;     // Set of graha codes drawn on the curve
   let picksTouched = false;   // once true, the ticks stop following the chain
   let tappedChain = null;     // the row that set the slider's span
+  // How far the slider reaches. 'period' is the tapped row, for picking a
+  // date inside one bhukti; 'full' is the whole Vimshottari run, so dragging
+  // crosses from one Mahadasa into the next.
+  let sliderScope = 'full';
+  let tappedSpan = null;      // {start, end} of the tapped row
   let frame = 'lagna';        // 'lagna' | 'moon'
   let timeline = null;        // {samples:[{date,positions}], sample_days}
   let transitPositions = null;
@@ -3035,6 +3047,29 @@ function stBar(pct,bg,height){
   // exactly equivalent to counting houses from that sign, which is how a
   // transit gets judged from the natal Lagna (or the natal Moon) without the
   // scoring engine needing to know anything about frames.
+  function spanOf() {
+    if (sliderScope === 'period' && tappedSpan) return tappedSpan;
+    const full = (typeof window.strengthFullSpan === 'function')
+      ? window.strengthFullSpan() : null;
+    return full || tappedSpan;
+  }
+
+  // Slider bounds, date-input bounds and the curve all read one span, so the
+  // marker can never sit outside the line it marks.
+  function applySpan() {
+    const span = spanOf();
+    if (!span) return;
+    period.start = span.start;
+    period.end = span.end;
+    const days = daysBetween(span.start, span.end);
+    if (slider) {
+      slider.min = 0;
+      slider.max = Math.max(days, 0);
+      slider.disabled = days <= 0;
+    }
+    if (dateInput) { dateInput.min = span.start; dateInput.max = span.end; }
+  }
+
   function frameSign() {
     return frame === 'moon' ? NATAL.Mon : NATAL.Asc;
   }
@@ -3422,6 +3457,11 @@ function stBar(pct,bg,height){
     }
   }
 
+  function syncScopeButtons() {
+    panel.querySelectorAll('[data-st-scope]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.stScope === sliderScope)));
+  }
+
   function setStatus(text, cls) {
     if (!statusEl) return;
     statusEl.textContent = text;
@@ -3439,7 +3479,7 @@ function stBar(pct,bg,height){
   }
 
   // ── the period the user tapped ──
-  function setPeriod(chain) {
+  function setPeriod(chain, fromTap) {
     if (!chain || !chain.length) return;
     const last = chain[chain.length - 1];
     tappedChain = chain;
@@ -3447,19 +3487,20 @@ function stBar(pct,bg,height){
     // running inside that span is then a question of the date, answered
     // on every move by refreshChain().
     period = { chain, start: last.start, end: last.end, depth: Math.max(chain.length, 3) };
+    tappedSpan = { start: last.start, end: last.end };
+    // Tapping a row is a request to look at that period, so the slider
+    // narrows to it; the scope buttons widen it again.
+    if (fromTap) sliderScope = 'period';
+    syncScopeButtons();
     sparkPicked = null;   // re-defaults to this chain's lords on next draw
-    const span = daysBetween(period.start, period.end);
-    if (slider) {
-      slider.min = 0;
-      slider.max = Math.max(span, 0);
-      slider.disabled = span <= 0;
-    }
-    if (dateInput) { dateInput.min = period.start; dateInput.max = period.end; }
+    applySpan();
     // Today when it falls inside the period, otherwise the midpoint - never
     // the start, which every sub-period shares with its parent.
     const today = new Date().toISOString().slice(0, 10);
-    const start = (today >= period.start && today <= period.end)
-      ? today : (span > 0 ? shiftDays(period.start, Math.round(span / 2)) : period.start);
+    const inner = last;   // the tapped period, even when the slider spans more
+    const innerDays = daysBetween(inner.start, inner.end);
+    const start = (today >= inner.start && today <= inner.end)
+      ? today : (innerDays > 0 ? shiftDays(inner.start, Math.round(innerDays / 2)) : inner.start);
     picksTouched = false;
     syncControls(start);
     timeline = null;
@@ -3530,6 +3571,17 @@ function stBar(pct,bg,height){
       applyTransit();
       return;
     }
+    const scopeBtn = e.target.closest('[data-st-scope]');
+    if (scopeBtn) {
+      sliderScope = scopeBtn.dataset.stScope;
+      syncScopeButtons();
+      applySpan();
+      // Keep the chosen date, unless widening or narrowing left it outside.
+      syncControls(clampDate(transitDate, period.start, period.end));
+      timeline = null;
+      loadTransit(transitDate, true);
+      return;
+    }
     const viewBtn = e.target.closest('[data-spark-view]');
     if (viewBtn) {
       sparkView = viewBtn.dataset.sparkView;
@@ -3551,12 +3603,13 @@ function stBar(pct,bg,height){
   chartNatal = buildChart('st.chart_natal', 'panel-a');
   chartGochar = buildChart('st.chart_gochar', 'panel-b');
   applyNatal();
+  syncScopeButtons();
   refreshHeader();
 
   I18N.apply(panel);
   I18N.onChange(() => { refreshHeader(); renderSparkline(); renderCompare(); });
 
   // The dasha table on the Chart tab drives this panel.
-  window.setStrengthPeriod = setPeriod;
+  window.setStrengthPeriod = (chain, fromTap) => setPeriod(chain, !!fromTap);
 })();
 </script>

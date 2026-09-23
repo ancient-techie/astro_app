@@ -3148,6 +3148,16 @@ PAGE_TEMPLATE = """
           window.strengthChainsAt = (isoList, depth) =>
             isoList.map((iso) => chainAt(iso, depth));
 
+          // The whole Vimshottari run, birth to the end of the ninth
+          // Mahadasha. The Strength tab's slider uses it as its widest
+          // setting, so dragging can cross from one Mahadasha into the next.
+          window.strengthFullSpan = () => {
+            const rows = tbody.querySelectorAll("tr.dasha-row.level-0");
+            if (!rows.length) return null;
+            return { start: rows[0].dataset.start,
+                     end: rows[rows.length - 1].dataset.end };
+          };
+
           // The 2nd lord (kudumba sthana) - the classical graha whose lordship
           // includes the 2nd house.
           const SECOND_LORD = Object.keys(DASHA_HOUSE_DATA).find((label) =>
@@ -3679,7 +3689,7 @@ PAGE_TEMPLATE = """
             // a fourth lord they have no rule for.
             updateGocharBox(chain);
             if (typeof window.setStrengthPeriod === "function") {
-              window.setStrengthPeriod(chain);
+              window.setStrengthPeriod(chain, true);
             }
             const boxChain = chain.slice(0, HOUSES_BOX_MAX_LEVEL + 1);
             updateHousesBox(boxChain);
@@ -3709,7 +3719,7 @@ PAGE_TEMPLATE = """
           // Opens on the period running today, with today's date preselected.
           updateGocharBox(currentChain(todayISO()));
           if (typeof window.setStrengthPeriod === "function") {
-            window.setStrengthPeriod(currentChain(todayISO()));
+            window.setStrengthPeriod(currentChain(todayISO()), false);
           }
         })();
       </script>
