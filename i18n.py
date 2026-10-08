@@ -162,12 +162,14 @@ TERMS = {
         "en": {
             "Mahadasha": "Mahadasha", "Antardasha": "Antardasha",
             "Pratyantardasha": "Pratyantardasha", "Sookshma Dasha": "Sookshma Dasha",
+            "Prana Dasha": "Prana Dasha",
         },
         "ta": {
             "Mahadasha": "மகா தசை",
             "Antardasha": "புக்தி",
             "Pratyantardasha": "அந்தரம்",
             "Sookshma Dasha": "சூட்சுமம்",
+            "Prana Dasha": "பிராணம்",
         },
     },
 
@@ -1138,6 +1140,39 @@ _EN = {
     "porutham.rajju.different": "The two stars fall in different rajjus.",
     "porutham.vedha.pierced": "These two stars are a vedha pair, said to pierce one another.",
     "porutham.vedha.clear": "The two stars form no vedha pair.",
+
+    # -- dasha clock (nine levels running live) ------------------------------
+    "dc.open": "Dasha Clock",
+    "dc.title": "Dasha Clock",
+    "dc.subtitle": "Nine Vimshottari levels, running from the moment of birth.",
+    "dc.close": "Close the Dasha Clock",
+    "dc.dial_label": "Nine rings, each showing the graha ruling that dasha level.",
+    "dc.level_n": "Level {n}",
+    "dc.now": "now",
+    "dc.ends": "ends",
+    "dc.left": "left",
+    "dc.too_fast": "faster than the screen can draw",
+    "dc.before_birth": "The dasha ladder starts at birth - there is nothing before it.",
+    "dc.note": "The clock runs on the exact birth instant, so a boundary can read up to a day apart from the Vimshottari table above, which prints dates only. The deepest levels change faster than a screen can draw them.",
+    "dc.u_y": "y",
+    "dc.u_mo": "mo",
+    "dc.u_d": "d",
+    "dc.u_h": "h",
+    "dc.u_m": "m",
+    "dc.u_s": "s",
+    "dc.u_ms": "ms",
+
+    # -- theme ---------------------------------------------------------------
+    "theme.toggle": "Switch the theme (dark, light, follow the device)",
+    "dc.scope_label": "How far the slider reaches",
+    "dc.scope_full": "Whole life",
+    "dc.slider_label": "Moment within the chosen span",
+    "dc.when_label": "Exact moment",
+    "dc.now_btn": "Now",
+    "dc.prev": "Previous period",
+    "dc.next": "Next period",
+    "dc.chosen": "chosen",
+    "dc.note2": "Drag the slider to read any moment, past or future. Tap a level to narrow what the slider reaches.",
 }
 
 _TA = {
@@ -1766,6 +1801,39 @@ _TA = {
     "porutham.rajju.different": "இரு நட்சத்திரங்களும் வெவ்வேறு ரஜ்ஜுக்கள்.",
     "porutham.vedha.pierced": "இவ்விரு நட்சத்திரங்களும் வேதை ஜோடி; ஒன்றையொன்று வேதிக்கும் என்பர்.",
     "porutham.vedha.clear": "இவ்விரு நட்சத்திரங்களுக்கிடையே வேதை இல்லை.",
+
+    # -- dasha clock (nine levels running live) ------------------------------
+    "dc.open": "தசை கடிகாரம்",
+    "dc.title": "தசை கடிகாரம்",
+    "dc.subtitle": "ஜனன கணத்திலிருந்து ஓடும் ஒன்பது விம்சோத்தரி நிலைகள்.",
+    "dc.close": "தசை கடிகாரத்தை மூடு",
+    "dc.dial_label": "ஒன்பது வளையங்கள்; ஒவ்வொன்றும் அந்த தசை நிலையை ஆளும் கிரகத்தைக் காட்டும்.",
+    "dc.level_n": "நிலை {n}",
+    "dc.now": "இப்போது",
+    "dc.ends": "முடிவு",
+    "dc.left": "மீதம்",
+    "dc.too_fast": "திரை வரைவதை விட வேகம்",
+    "dc.before_birth": "தசை வரிசை ஜனனத்தில் தொடங்குகிறது; அதற்கு முன் எதுவும் இல்லை.",
+    "dc.note": "கடிகாரம் சரியான ஜனன கணத்தில் ஓடுகிறது; மேலே உள்ள விம்சோத்தரி பலகை தேதியை மட்டுமே காட்டுவதால் ஒரு நாள் வரை வேறுபடலாம். ஆழமான நிலைகள் திரை வரைவதை விட வேகமாக மாறும்.",
+    "dc.u_y": "ஆ",
+    "dc.u_mo": "மா",
+    "dc.u_d": "நா",
+    "dc.u_h": "மணி",
+    "dc.u_m": "நி",
+    "dc.u_s": "வி",
+    "dc.u_ms": "மி.வி",
+
+    # -- theme ---------------------------------------------------------------
+    "theme.toggle": "தொகுப்பை மாற்று (இருள், வெளிச்சம், சாதனத்தைப் பின்பற்று)",
+    "dc.scope_label": "சரிப்பையின் விரிவு",
+    "dc.scope_full": "முழு ஆயுள்",
+    "dc.slider_label": "தேர்ந்த விரிவில் ஒரு கணம்",
+    "dc.when_label": "சரியான கணம்",
+    "dc.now_btn": "இப்போது",
+    "dc.prev": "முந்தைய காலம்",
+    "dc.next": "அடுத்த காலம்",
+    "dc.chosen": "தேர்ந்தது",
+    "dc.note2": "சரிப்பையை இழுத்து இறந்த கால, எதிர்கால எந்தக் கணத்தையும் காணலாம். ஒரு நிலையைத் தொட்டால் சரிப்பை அந்தக் காலத்திற்குச் சுருங்கும்.",
 }
 
 UI = {"en": _EN, "ta": _TA}

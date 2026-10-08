@@ -1,0 +1,912 @@
+<!-- ===========================================================================
+     Dasha Clock - nine Vimshottari levels running live.
+
+     Nine concentric rings, outermost Mahadasha, innermost the ninth level.
+     Each ring is cut into the nine sub-lords that tile its parent period, at
+     their true proportions, and carries a needle that sweeps a full turn over
+     that parent period. So the Mahadasha needle crawls over sixteen-odd years
+     while the inner ones spin: in a Sun-heavy chain the ninth level turns over
+     every 7 ms, in a Moon-heavy one every 0.7 s, in a Venus-heavy one every
+     6 minutes.
+
+     Its own file for the reason chart_playground.html and strength_panel.html
+     are: Jinja never re-parses a variable's value, so the template literals
+     and braces below arrive at the browser intact. The price is that the
+     reloader does not watch it - restart by hand after editing.
+
+     It deliberately does NOT reuse computeSubPeriods or chainAt from
+     PAGE_TEMPLATE: both work in whole days (isoDate truncates), which is
+     useless for anything below the fourth level. The maths here runs in
+     milliseconds from the exact birth instant the server seeds in
+     #dashaClockSeed.
+     =========================================================================== -->
+<style>
+  /* The dial paints its own ink: on night it is pale type with a dark halo,
+     on paper the other way round. Unlit segments need more presence on paper
+     too - 13% of a colour over white is nearly nothing. */
+  :root {
+    --dc-needle: #fff8e8;
+    --dc-glyph: #fff;
+    --dc-glyph-halo: rgba(8, 7, 16, 0.85);
+    --dc-track: rgba(255, 255, 255, 0.08);
+    --dc-dim: 0.13;
+    --dc-scrim: rgba(8, 7, 16, 0.84);
+  }
+  html[data-theme="light"] {
+    --dc-needle: #3a2d10;
+    --dc-glyph: #231c0c;
+    --dc-glyph-halo: rgba(255, 253, 247, 0.92);
+    --dc-track: rgba(43, 36, 24, 0.12);
+    --dc-dim: 0.26;
+    --dc-scrim: rgba(60, 50, 28, 0.42);
+  }
+  /* The button that opens it, sitting on the Vimshottari section heading.
+     Its own font-family because .section-title sets Cinzel on the line, and
+     Cinzel is for titles - buttons are UI type. */
+  .dc-open-btn {
+    margin-left: auto;
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    color: var(--text);
+    background: var(--primary-grad-soft);
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  .dc-open-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(212, 175, 55, 0.25); }
+  .dc-open-btn:active { transform: scale(0.97); }
+  .dc-open-btn .dc-btn-glyph { font-size: 14px; line-height: 1; }
+
+  .dc-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    padding-top: calc(16px + var(--safe-t));
+    padding-bottom: calc(16px + var(--safe-b));
+    background: var(--dc-scrim);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+  .dc-modal[hidden] { display: none; }
+  .dc-dialog {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    width: min(1000px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .dc-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .dc-head h3 {
+    margin: 0;
+    font-family: 'Cinzel', serif;
+    color: var(--gold);
+    font-size: 15px;
+    letter-spacing: 0.05em;
+  }
+  .dc-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .dc-close {
+    margin-left: auto;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-3);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .dc-close:active { transform: scale(0.94); }
+
+  .dc-body {
+    padding: 14px 16px 4px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  @media (min-width: 760px) {
+    .dc-body { grid-template-columns: minmax(300px, 440px) 1fr; }
+  }
+
+  .dc-dial-wrap { margin: 0 auto; width: 100%; max-width: 440px; }
+  .dc-dial { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .dc-seg { stroke: none; }
+  .dc-seg.dim { opacity: var(--dc-dim); }
+  .dc-seg.live { opacity: 1; }
+  .dc-ringbg { fill: none; stroke: var(--dc-track); }
+  /* A level whose period is shorter than a couple of frames cannot be drawn
+     honestly - the needle would land somewhere arbitrary. The ring breathes
+     instead, and its row says so in words. */
+  .dc-ring.fast .dc-seg.live { animation: dc-pulse 0.7s ease-in-out infinite; }
+  .dc-ring.fast .dc-needle { opacity: 0.25; }
+  .dc-ring.fast .dc-glyph { opacity: 0.45; }
+  @keyframes dc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .dc-needle { stroke: var(--dc-needle); stroke-width: 1.6; stroke-linecap: round; }
+  .dc-needle-cap { fill: var(--dc-needle); }
+  .dc-glyph {
+    font-family: 'Lato', -apple-system, sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    fill: var(--dc-glyph);
+    paint-order: stroke;
+    stroke: var(--dc-glyph-halo);
+    stroke-width: 2.4px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  html[data-lang="ta"] .dc-glyph { font-size: 8px; }
+
+  .dc-hub { fill: var(--surface-2); stroke: var(--border); }
+  .dc-hub-time {
+    font-family: 'Lato', -apple-system, sans-serif;
+    font-size: 19px;
+    font-weight: 700;
+    fill: var(--primary-2);
+    text-anchor: middle;
+    font-variant-numeric: tabular-nums;
+  }
+  .dc-hub-date, .dc-hub-tag {
+    font-family: 'Lato', -apple-system, sans-serif;
+    font-size: 10px;
+    fill: var(--muted);
+    text-anchor: middle;
+  }
+  .dc-hub-tag { font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; }
+
+  /* The dial is the shape of the thing; this list is what you actually read. */
+  .dc-levels { display: grid; gap: 5px; }
+  .dc-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border: 1px solid rgba(212, 175, 55, 0.12);
+  }
+  .dc-row { cursor: pointer; }
+  .dc-row.deep { background: var(--surface-3); }
+  .dc-row.scoped { border-color: rgba(212, 175, 55, 0.55); box-shadow: inset 2px 0 0 var(--primary); }
+  .dc-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .dc-row-main { min-width: 0; }
+  .dc-row-lord { display: block; font-size: 13.5px; font-weight: 700; color: var(--text); }
+  .dc-row-level { display: block; font-size: 10.5px; color: var(--muted-2); letter-spacing: 0.04em; }
+  .dc-row-right { text-align: right; font-variant-numeric: tabular-nums; }
+  .dc-row-left { display: block; font-size: 12.5px; font-weight: 700; color: var(--primary-2); white-space: nowrap; }
+  .dc-row-ends { display: block; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .dc-bar {
+    grid-column: 1 / -1;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--dc-track);
+    overflow: hidden;
+  }
+  .dc-bar i { display: block; height: 100%; border-radius: 2px; }
+  .dc-row.fast .dc-row-left { color: var(--muted); font-weight: 600; font-size: 11px; }
+
+
+  /* ── The time scrubber ──────────────────────────────────────────────────
+     A single slider cannot both span 120 years and resolve a second, so it
+     does not try: it always reaches exactly one period, and which period is
+     the scope. Tapping a level narrows it to that level's period, so the
+     deep levels - the ones that make this a clock - are reachable at all. */
+  .dc-controls {
+    padding: 10px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    display: grid;
+    gap: 9px;
+  }
+  .dc-ctl-row { display: flex; align-items: center; gap: 8px; }
+  .dc-ctl-row2 { flex-wrap: wrap; }
+  .dc-step {
+    flex: none; width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--surface-3);
+    color: var(--text); font-size: 11px; line-height: 1; cursor: pointer;
+  }
+  .dc-step:active { transform: scale(0.94); }
+  .dc-slider-wrap {
+    position: relative; flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center; height: 32px;
+  }
+  #dcSlider {
+    width: 100%; margin: 0; height: 32px; cursor: pointer;
+    -webkit-appearance: none; appearance: none; background: transparent;
+  }
+  #dcSlider::-webkit-slider-runnable-track {
+    height: 5px; border-radius: 3px;
+    background: linear-gradient(90deg, rgba(212,175,55,0.45), rgba(212,175,55,0.12));
+  }
+  #dcSlider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7.5px;
+    border-radius: 50%; background: var(--primary-grad);
+    border: 2px solid var(--surface); box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  #dcSlider::-moz-range-track { height: 5px; border-radius: 3px; background: rgba(212,175,55,0.3); }
+  #dcSlider::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--primary); border: 2px solid var(--surface);
+  }
+  /* Where the present moment falls inside whatever the slider reaches - so
+     dragging into the past or the future stays legible as such. */
+  .dc-nowmark {
+    position: absolute; top: 6px; bottom: 6px; width: 2px; border-radius: 1px;
+    background: var(--primary-2); opacity: 0.9; pointer-events: none;
+    transform: translateX(-1px);
+  }
+  .dc-nowmark[hidden] { display: none; }
+  .dc-ctl-label { font-size: 11px; color: var(--muted-2); letter-spacing: 0.04em; flex: none; }
+  #dcScope, #dcWhen {
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12px; color: var(--text); min-width: 0;
+    background: var(--surface-3); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 8px;
+  }
+  #dcScope { flex: 1 1 130px; }
+  #dcWhen { flex: 1 1 160px; }
+  .dc-now-btn {
+    flex: none; font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    padding: 6px 12px; border-radius: 999px;
+    color: var(--muted); background: var(--surface-3);
+    border: 1px solid var(--border);
+  }
+  /* Only worth pressing once the clock has been moved off the present. */
+  .dc-dialog.scrubbed .dc-now-btn {
+    background: var(--primary-grad); color: var(--on-primary); border-color: transparent;
+  }
+  .dc-dialog.scrubbed .dc-hub-time { fill: var(--text); }
+
+  .dc-foot {
+    padding: 10px 16px calc(12px + var(--safe-b));
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--muted-2);
+    line-height: 1.5;
+  }
+  .dc-warn {
+    margin: 0 16px 10px; padding: 8px 10px; border-radius: var(--radius-sm);
+    background: var(--danger-bg); border: 1px solid var(--danger-border);
+    color: var(--danger-text); font-size: 12px;
+  }
+  .dc-warn[hidden] { display: none; }
+</style>
+
+<div id="dashaClockModal" class="dc-modal" hidden role="dialog" aria-modal="true"
+     aria-labelledby="dashaClockTitle">
+  <div class="dc-dialog">
+    <div class="dc-head">
+      <div>
+        <h3 id="dashaClockTitle" data-i18n="dc.title">Dasha Clock</h3>
+        <div class="dc-sub" data-i18n="dc.subtitle">Nine Vimshottari levels, running from the moment of birth.</div>
+      </div>
+      <button type="button" id="dashaClockClose" class="dc-close"
+              data-i18n-attr="aria-label:dc.close">&times;</button>
+    </div>
+    <div class="dc-controls">
+      <div class="dc-ctl-row">
+        <button type="button" class="dc-step" id="dcPrev"
+                data-i18n-attr="aria-label:dc.prev">&#9664;</button>
+        <div class="dc-slider-wrap">
+          <input type="range" id="dcSlider" min="0" max="1" step="any" value="0"
+                 data-i18n-attr="aria-label:dc.slider_label">
+          <span class="dc-nowmark" id="dcNowMark" hidden></span>
+        </div>
+        <button type="button" class="dc-step" id="dcNext"
+                data-i18n-attr="aria-label:dc.next">&#9654;</button>
+      </div>
+      <div class="dc-ctl-row dc-ctl-row2">
+        <label class="dc-ctl-label" for="dcScope" data-i18n="dc.scope_label">How far the slider reaches</label>
+        <select id="dcScope"></select>
+        <input type="datetime-local" id="dcWhen" step="1"
+               data-i18n-attr="aria-label:dc.when_label">
+        <button type="button" class="dc-now-btn" id="dcNow">&#8635; <span data-i18n="dc.now_btn">Now</span></button>
+      </div>
+    </div>
+    <div class="dc-warn" id="dcWarn" hidden></div>
+    <div class="dc-body">
+      <div class="dc-dial-wrap">
+        <svg id="dcDial" class="dc-dial" viewBox="0 0 400 400" role="img"
+             data-i18n-attr="aria-label:dc.dial_label">
+          <g id="dcRings"></g>
+          <circle class="dc-hub" cx="200" cy="200" r="54"></circle>
+          <text id="dcHubTag" class="dc-hub-tag" x="200" y="183">now</text>
+          <text id="dcHubTime" class="dc-hub-time" x="200" y="205">--:--:--</text>
+          <text id="dcHubDate" class="dc-hub-date" x="200" y="221"></text>
+        </svg>
+      </div>
+      <div class="dc-levels" id="dcLevels"></div>
+    </div>
+    <div class="dc-foot">
+      <span data-i18n="dc.note">The clock runs on the exact birth instant, so a boundary can read up to a day apart from the Vimshottari table above, which prints dates only. The deepest levels change faster than a screen can draw them.</span>
+      <span data-i18n="dc.note2">Drag the slider to read any moment, past or future. Tap a level to narrow what the slider reaches.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var seedEl = document.getElementById("dashaClockSeed");
+  var modal = document.getElementById("dashaClockModal");
+  var btn = document.getElementById("dashaClockBtn");
+  if (!seedEl || !modal) return;
+
+  var SEED = null;
+  try { SEED = JSON.parse(seedEl.textContent || "null"); } catch (err) { SEED = null; }
+  if (!SEED || !SEED.birth_utc || !SEED.lord0) return;
+
+  var BIRTH_MS = Date.parse(SEED.birth_utc);
+  if (isNaN(BIRTH_MS)) return;
+
+  // ── The ladder ──────────────────────────────────────────────────────────
+  var ORDER = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"];
+  var YEARS = { Ketu: 7, Venus: 20, Sun: 6, Moon: 10, Mars: 7, Rahu: 18, Jupiter: 16, Saturn: 19, Mercury: 17 };
+  var YEAR_MS = 365.2425 * 86400000;        // the same DAYS_PER_YEAR the rest of the app uses
+  var CYCLE_MS = 120 * YEAR_MS;
+  var DEPTH = 9;
+
+  // Levels 1-5 have settled names; past Prana there is no agreed ladder, so
+  // the rest are numbered rather than given invented Sanskrit.
+  var LEVEL_TERMS = ["Mahadasha", "Antardasha", "Pratyantardasha", "Sookshma Dasha", "Prana Dasha"];
+  function levelName(k) {
+    return k < LEVEL_TERMS.length
+      ? I18N.term("dasha_level", LEVEL_TERMS[k])
+      : I18N.t("dc.level_n", { n: k + 1 });
+  }
+
+  // Graha hues, lifted from the chart palette (PLANET_BASE in
+  // chart_playground.html) but lightened where the chart colour would vanish
+  // against the dark dial - Rahu is near-black there, Saturn and Ketu nearly
+  // so. A fourth copy of the palette is not ideal; it follows the same
+  // duplication the Strength panel already lives with.
+  var HUE_DARK = {
+    Sun: "#FF9900", Moon: "#DCE6FF", Mars: "#FF3B24", Mercury: "#22D94D",
+    Jupiter: "#FFD700", Venus: "#FFB0C8", Saturn: "#4C7BE8",
+    Rahu: "#8A8AA0", Ketu: "#C4542F"
+  };
+  // Paper needs the same nine grahas recognisably, but Moon, Jupiter and
+  // Venus are near-white against it, so each is taken down to where it still
+  // reads as its own colour against #fffdf7.
+  var HUE_LIGHT = {
+    Sun: "#D97706", Moon: "#7C8FB8", Mars: "#CC2113", Mercury: "#128536",
+    Jupiter: "#B08900", Venus: "#C4567F", Saturn: "#2B52B8",
+    Rahu: "#5A5A6E", Ketu: "#A03D1C"
+  };
+  var HUE = HUE_DARK;
+  function applyThemeHues() {
+    HUE = (window.VedicTheme && window.VedicTheme.resolved() === "light") ? HUE_LIGHT : HUE_DARK;
+  }
+  applyThemeHues();
+
+  var I0 = ORDER.indexOf(SEED.lord0);
+  var BALANCE_MS = (SEED.balance_years || 0) * YEAR_MS;
+  // The first cycle is short by whatever of the birth lord's Mahadasha had
+  // already run when the native was born.
+  var CYCLE0_MS = CYCLE_MS - (YEARS[SEED.lord0] * YEAR_MS - BALANCE_MS);
+
+  // Which 120-year run `t` (ms since birth) falls in. The table on the page
+  // stops after the first; the clock keeps cycling so it never goes blank.
+  function cycleAt(t) {
+    if (t < CYCLE0_MS) {
+      return { start: 0, dur: CYCLE0_MS, firstMs: BALANCE_MS, n: 0 };
+    }
+    var n = Math.floor((t - CYCLE0_MS) / CYCLE_MS);
+    return {
+      start: CYCLE0_MS + n * CYCLE_MS,
+      dur: CYCLE_MS,
+      firstMs: YEARS[SEED.lord0] * YEAR_MS,
+      n: n + 1
+    };
+  }
+
+  // The nine Mahadashas of one cycle. After nine steps DASHA_ORDER comes back
+  // round to the birth lord, so every cycle but the first starts with it at
+  // full length.
+  function cycleSegments(c) {
+    var out = [], cur = c.start, k, lord, dur;
+    for (k = 0; k < 9; k++) {
+      lord = ORDER[(I0 + k) % 9];
+      dur = k === 0 ? c.firstMs : YEARS[lord] * YEAR_MS;
+      out.push({ lord: lord, start: cur, dur: dur });
+      cur += dur;
+    }
+    return out;
+  }
+
+  // The nine sub-periods inside any period: the sequence starts with the
+  // parent's own lord and walks ORDER, each child taking its own share of the
+  // 120-year cycle. The nine shares sum to 120/120, so they tile the parent
+  // exactly - which is what lets this recurse nine deep without drift.
+  function childSegments(lord, start, dur) {
+    var i = ORDER.indexOf(lord), out = [], cur = start, k, child, d;
+    for (k = 0; k < 9; k++) {
+      child = ORDER[(i + k) % 9];
+      d = dur * YEARS[child] / 120;
+      out.push({ lord: child, start: cur, dur: d });
+      cur += d;
+    }
+    return out;
+  }
+
+  // Nine rings for an instant. Ring k holds the nine siblings at level k+1,
+  // the span they tile, and which of them is running.
+  function ringsAt(t) {
+    var c = cycleAt(t);
+    var span = { start: c.start, dur: c.dur };
+    var segs = cycleSegments(c);
+    var rings = [], k, active, a;
+    for (k = 0; k < DEPTH; k++) {
+      active = -1;
+      for (var i = 0; i < 9; i++) {
+        if (t >= segs[i].start && t < segs[i].start + segs[i].dur) { active = i; break; }
+      }
+      if (active === -1) active = t < segs[0].start ? 0 : 8;   // float edge - clamp
+      a = segs[active];
+      rings.push({ span: span, segs: segs, active: active, period: a });
+      span = { start: a.start, dur: a.dur };
+      segs = childSegments(a.lord, a.start, a.dur);
+    }
+    return rings;
+  }
+
+  // ── Dial geometry ───────────────────────────────────────────────────────
+  var R_OUT = 194, R_HUB = 56, BAND = (R_OUT - R_HUB) / DEPTH, THICK = BAND - 2.6;
+  var PAD_DEG = 0.9;   // every segment is at least 18 degrees (Sun, 6/120), so a hairline gap always fits
+
+  function pt(r, deg) {
+    var rad = (deg - 90) * Math.PI / 180;
+    return [200 + r * Math.cos(rad), 200 + r * Math.sin(rad)];
+  }
+  function sector(ri, ro, a0, a1) {
+    var large = (a1 - a0) > 180 ? 1 : 0;
+    var p0 = pt(ro, a0), p1 = pt(ro, a1), p2 = pt(ri, a1), p3 = pt(ri, a0);
+    return "M" + p0[0].toFixed(2) + " " + p0[1].toFixed(2) +
+           "A" + ro + " " + ro + " 0 " + large + " 1 " + p1[0].toFixed(2) + " " + p1[1].toFixed(2) +
+           "L" + p2[0].toFixed(2) + " " + p2[1].toFixed(2) +
+           "A" + ri + " " + ri + " 0 " + large + " 0 " + p3[0].toFixed(2) + " " + p3[1].toFixed(2) + "Z";
+  }
+
+  var ringsG = document.getElementById("dcRings");
+  var levelsEl = document.getElementById("dcLevels");
+  var hubTime = document.getElementById("dcHubTime");
+  var hubDate = document.getElementById("dcHubDate");
+  var hubTag = document.getElementById("dcHubTag");
+
+  // One <g> per ring, built once: nine segment paths, a needle and a glyph.
+  var RING = [];
+  (function buildDial() {
+    var frag = document.createDocumentFragment();
+    for (var k = 0; k < DEPTH; k++) {
+      var ro = R_OUT - k * BAND, ri = ro - THICK, mid = (ro + ri) / 2;
+      var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", "dc-ring");
+      var segs = [];
+      for (var s = 0; s < 9; s++) {
+        var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("class", "dc-seg dim");
+        g.appendChild(p);
+        segs.push(p);
+      }
+      var needle = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      needle.setAttribute("class", "dc-needle");
+      g.appendChild(needle);
+      var glyph = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      glyph.setAttribute("class", "dc-glyph");
+      g.appendChild(glyph);
+      frag.appendChild(g);
+      RING.push({ g: g, segs: segs, needle: needle, glyph: glyph, ro: ro, ri: ri, mid: mid, key: "" });
+    }
+    ringsG.appendChild(frag);
+  })();
+
+  // Nine rows, built once and then only updated.
+  var ROW = [];
+  (function buildRows() {
+    var frag = document.createDocumentFragment();
+    for (var k = 0; k < DEPTH; k++) {
+      var row = document.createElement("div");
+      row.className = "dc-row" + (k >= 5 ? " deep" : "");
+      row.innerHTML =
+        '<span class="dc-dot"></span>' +
+        '<span class="dc-row-main"><span class="dc-row-lord"></span>' +
+        '<span class="dc-row-level"></span></span>' +
+        '<span class="dc-row-right"><span class="dc-row-left"></span>' +
+        '<span class="dc-row-ends"></span></span>' +
+        '<span class="dc-bar"><i></i></span>';
+      frag.appendChild(row);
+      ROW.push({
+        el: row,
+        dot: row.querySelector(".dc-dot"),
+        lord: row.querySelector(".dc-row-lord"),
+        level: row.querySelector(".dc-row-level"),
+        left: row.querySelector(".dc-row-left"),
+        ends: row.querySelector(".dc-row-ends"),
+        bar: row.querySelector(".dc-bar i")
+      });
+    }
+    levelsEl.appendChild(frag);
+  })();
+
+  // ── Formatting ──────────────────────────────────────────────────────────
+  var U = function (k) { return I18N.t("dc.u_" + k); };
+  var MONTH_MS = YEAR_MS / 12;
+
+  function fmtDur(ms) {
+    if (ms < 0) ms = 0;
+    var a, b;
+    if (ms >= YEAR_MS) {
+      a = Math.floor(ms / YEAR_MS); b = Math.floor((ms - a * YEAR_MS) / MONTH_MS);
+      return a + U("y") + " " + b + U("mo");
+    }
+    if (ms >= MONTH_MS) {
+      a = Math.floor(ms / MONTH_MS); b = Math.floor((ms - a * MONTH_MS) / 86400000);
+      return a + U("mo") + " " + b + U("d");
+    }
+    if (ms >= 86400000) {
+      a = Math.floor(ms / 86400000); b = Math.floor((ms % 86400000) / 3600000);
+      return a + U("d") + " " + b + U("h");
+    }
+    if (ms >= 3600000) {
+      a = Math.floor(ms / 3600000); b = Math.floor((ms % 3600000) / 60000);
+      return a + U("h") + " " + b + U("m");
+    }
+    if (ms >= 60000) {
+      a = Math.floor(ms / 60000); b = Math.floor((ms % 60000) / 1000);
+      return a + U("m") + " " + b + U("s");
+    }
+    if (ms >= 1000) return (ms / 1000).toFixed(1) + U("s");
+    return Math.round(ms) + U("ms");
+  }
+
+  var p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+  function fmtDate(d) {
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate());
+  }
+  function fmtTime(d) {
+    return p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds());
+  }
+  // A boundary is only worth a time of day when the period is short enough for
+  // one to mean anything.
+  function fmtBoundary(ms, dur) {
+    var d = new Date(ms);
+    if (dur >= 86400000) return fmtDate(d);
+    if (dur >= 1000) return fmtDate(d) + " " + fmtTime(d);
+    return fmtTime(d) + "." + String(Math.floor(d.getMilliseconds() / 10) * 10);
+  }
+
+  // ── Time: live, or wherever the slider was left ─────────────────────────
+  // "live" follows the present moment; the first drag freezes it and the
+  // clock reads whatever instant was chosen, past or future. Nothing here
+  // touches the chart - it is the same ladder, read at another moment.
+  var dialog = modal.querySelector(".dc-dialog");
+  var slider = document.getElementById("dcSlider");
+  var nowMark = document.getElementById("dcNowMark");
+  var scopeSel = document.getElementById("dcScope");
+  var whenInput = document.getElementById("dcWhen");
+  var nowBtn = document.getElementById("dcNow");
+  var prevBtn = document.getElementById("dcPrev");
+  var nextBtn = document.getElementById("dcNext");
+  var warnEl = document.getElementById("dcWarn");
+
+  var mode = "live";       // "live" | "scrub"
+  var scrubT = 0;          // ms since birth, when scrubbing
+  var scope = "full";      // "full", or a level index 0-8
+  var span = null;         // {start, dur} - what the slider currently reaches
+
+  function liveT() { return Date.now() - BIRTH_MS; }
+  function currentT() { return mode === "live" ? liveT() : scrubT; }
+
+  // The slider reaches exactly one period: the whole cycle, or the period
+  // running at `t` on the chosen level. A single control cannot span 120
+  // years and still resolve the seconds the ninth level turns over in.
+  function spanFor(kind, t) {
+    if (kind === "full") {
+      var c = cycleAt(t);
+      return { start: c.start, dur: c.dur };
+    }
+    var r = ringsAt(t)[kind];
+    return { start: r.period.start, dur: r.period.dur };
+  }
+
+  function setScope(kind, t) {
+    scope = kind;
+    span = spanFor(kind, t);
+    if (scopeSel.value !== String(kind)) scopeSel.value = String(kind);
+  }
+
+  function buildScopeOptions() {
+    var keep = scopeSel.value || "full";
+    scopeSel.innerHTML = "";
+    var opt = document.createElement("option");
+    opt.value = "full"; opt.textContent = I18N.t("dc.scope_full");
+    scopeSel.appendChild(opt);
+    for (var k = 0; k < DEPTH; k++) {
+      var o = document.createElement("option");
+      o.value = String(k); o.textContent = levelName(k);
+      scopeSel.appendChild(o);
+    }
+    scopeSel.value = keep;
+  }
+
+  function goTo(t) {
+    // Before birth there is no ladder to read, so the clock holds at the
+    // birth moment and says why rather than drawing nothing.
+    if (t < 0) {
+      warnEl.textContent = I18N.t("dc.before_birth");
+      warnEl.hidden = false;
+      t = 0;
+    } else {
+      warnEl.hidden = true;
+    }
+    mode = "scrub";
+    scrubT = t;
+    dialog.classList.add("scrubbed");
+    stop();
+    draw(true);
+  }
+
+  function goLive() {
+    mode = "live";
+    warnEl.hidden = true;
+    dialog.classList.remove("scrubbed");
+    setScope(scope, liveT());
+    if (open) start(); else draw(true);
+  }
+
+  // Walking a period at a time is the only practical way to cross a span the
+  // slider cannot reach - one tap moves to the neighbouring sibling.
+  function stepPeriod(dir) {
+    var t = currentT();
+    var sp = spanFor(scope, t);
+    var target = dir < 0 ? sp.start - 1 : sp.start + sp.dur + 1;
+    if (target < 0) target = 0;
+    var next = spanFor(scope, target);
+    span = next;
+    goTo(dir < 0 ? next.start + next.dur / 2 : next.start);
+  }
+
+  function syncControls(t) {
+    var frac = (t - span.start) / span.dur;
+    if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
+    if (document.activeElement !== slider) slider.value = String(frac);
+    var nf = (liveT() - span.start) / span.dur;
+    if (nf >= 0 && nf <= 1) {
+      nowMark.hidden = false;
+      nowMark.style.left = (nf * 100).toFixed(3) + "%";
+    } else {
+      nowMark.hidden = true;
+    }
+    if (document.activeElement !== whenInput) {
+      whenInput.value = toLocalInput(BIRTH_MS + t);
+    }
+  }
+
+  function toLocalInput(ms) {
+    var d = new Date(ms);
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) +
+           "T" + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds());
+  }
+
+  // ── Drawing ─────────────────────────────────────────────────────────────
+  var FAST_MS = 50;        // below two frames a needle position is fiction
+  var TEXT_EVERY = 125;    // the rows settle at 8 Hz; a 60 Hz digit is unreadable
+  var lastText = 0;
+
+  function draw(force) {
+    var t = currentT();
+    if (t < 0) t = 0;
+    var rings = ringsAt(t);
+    // While live the span follows the running period, so the thumb keeps
+    // moving; once scrubbed it is frozen and the thumb is the user's. Taken
+    // off the rings already computed rather than walking the ladder twice.
+    if (mode === "live" || !span) {
+      if (scope === "full") {
+        var c = cycleAt(t);
+        span = { start: c.start, dur: c.dur };
+      } else {
+        span = { start: rings[scope].period.start, dur: rings[scope].period.dur };
+      }
+    }
+    var shown = new Date(BIRTH_MS + t);
+    var writeText = force || (Date.now() - lastText >= TEXT_EVERY);
+    if (writeText) lastText = Date.now();
+
+    for (var k = 0; k < DEPTH; k++) {
+      var r = rings[k], v = RING[k], row = ROW[k];
+      var frac = (t - r.span.start) / r.span.dur;
+      if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
+      var angle = frac * 360;
+      var fast = mode === "live" && r.period.dur < FAST_MS;
+
+      // The nine segment shapes depend only on which lord opens the ring, so
+      // they are re-cut only when the parent above changes - which for the
+      // inner rings is most frames and for the outer ones once a decade.
+      var key = r.span.start + "|" + r.segs[0].lord;
+      if (force || v.key !== key) {
+        v.key = key;
+        for (var s = 0; s < 9; s++) {
+          var seg = r.segs[s];
+          var a0 = (seg.start - r.span.start) / r.span.dur * 360;
+          var a1 = a0 + seg.dur / r.span.dur * 360;
+          v.segs[s].setAttribute("d", sector(v.ri, v.ro, a0, Math.max(a0 + 0.1, a1 - PAD_DEG)));
+          v.segs[s].setAttribute("fill", HUE[seg.lord]);
+        }
+      }
+      for (var s2 = 0; s2 < 9; s2++) {
+        v.segs[s2].setAttribute("class", "dc-seg " + (s2 === r.active ? "live" : "dim"));
+      }
+
+      var np0 = pt(v.ri - 1.5, angle), np1 = pt(v.ro + 1.5, angle);
+      v.needle.setAttribute("x1", np0[0].toFixed(2));
+      v.needle.setAttribute("y1", np0[1].toFixed(2));
+      v.needle.setAttribute("x2", np1[0].toFixed(2));
+      v.needle.setAttribute("y2", np1[1].toFixed(2));
+
+      // The glyph rides the needle, so the "numbers" of the dial are the nine
+      // grahas and the inner ones visibly run.
+      var gp = pt(v.mid, angle);
+      v.glyph.setAttribute("x", gp[0].toFixed(2));
+      v.glyph.setAttribute("y", gp[1].toFixed(2));
+      v.g.setAttribute("class", "dc-ring" + (fast ? " fast" : ""));
+
+      if (writeText) {
+        var abbr = I18N.term("planet_abbr", r.period.lord);
+        if (v.glyph.textContent !== abbr) v.glyph.textContent = abbr;
+        var pFrac = (t - r.period.start) / r.period.dur;
+        if (pFrac < 0) pFrac = 0; else if (pFrac > 1) pFrac = 1;
+        row.el.className = "dc-row" + (k >= 5 ? " deep" : "") + (fast ? " fast" : "") +
+          (String(scope) === String(k) ? " scoped" : "");
+        row.dot.style.background = HUE[r.period.lord];
+        row.lord.textContent = I18N.term("planet", r.period.lord);
+        row.level.textContent = levelName(k);
+        row.left.textContent = fast
+          ? I18N.t("dc.too_fast")
+          : fmtDur(r.period.start + r.period.dur - t) + " " + I18N.t("dc.left");
+        row.ends.textContent = I18N.t("dc.ends") + " " +
+          fmtBoundary(BIRTH_MS + r.period.start + r.period.dur, r.period.dur);
+        row.bar.style.width = (pFrac * 100).toFixed(2) + "%";
+        row.bar.style.background = HUE[r.period.lord];
+      }
+    }
+
+    if (writeText) {
+      hubTag.textContent = I18N.t(mode === "live" ? "dc.now" : "dc.chosen");
+      hubTime.textContent = fmtTime(shown);
+      hubDate.textContent = fmtDate(shown);
+      syncControls(t);   // at 8 Hz, not 60 - these are form controls
+    }
+  }
+
+  // ── The loop ────────────────────────────────────────────────────────────
+  // requestAnimationFrame rather than a one-second interval: the eighth and
+  // ninth levels can turn over several times between two ticks of a clock,
+  // and a needle that only moves once a second does not look like one.
+  var raf = 0, open = false;
+  function frame() {
+    if (!open || mode !== "live") { raf = 0; return; }
+    draw(false);
+    raf = requestAnimationFrame(frame);
+  }
+  // Nothing animates while scrubbed - the instant is fixed, so one draw does.
+  function start() {
+    if (raf) return;
+    lastText = 0;
+    draw(true);
+    if (mode === "live") raf = requestAnimationFrame(frame);
+  }
+  function stop() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  }
+
+  var scrollY = 0;
+  function openClock() {
+    open = true;
+    modal.hidden = false;
+    scrollY = window.scrollY;
+    document.body.style.overflow = "hidden";
+    buildScopeOptions();
+    setScope(scope, currentT());
+    start();
+  }
+  function closeClock() {
+    open = false;
+    stop();
+    modal.hidden = true;
+    document.body.style.overflow = "";
+    window.scrollTo(0, scrollY);
+  }
+
+  slider.addEventListener("input", function () {
+    goTo(span.start + parseFloat(slider.value) * span.dur);
+  });
+  scopeSel.addEventListener("change", function () {
+    var kind = scopeSel.value === "full" ? "full" : parseInt(scopeSel.value, 10);
+    setScope(kind, currentT());
+    draw(true);
+  });
+  whenInput.addEventListener("change", function () {
+    var ms = new Date(whenInput.value).getTime();
+    if (isNaN(ms)) return;
+    var t = ms - BIRTH_MS;
+    // A typed moment can land outside what the slider reaches, so re-frame
+    // the span around it rather than clamping the answer to the old one.
+    span = spanFor(scope, t < 0 ? 0 : t);
+    goTo(t);
+  });
+  nowBtn.addEventListener("click", goLive);
+  prevBtn.addEventListener("click", function () { stepPeriod(-1); });
+  nextBtn.addEventListener("click", function () { stepPeriod(1); });
+  // Tapping a level is the quick way to narrow the slider onto it - the only
+  // way the deepest levels, which turn over in seconds, are reachable at all.
+  levelsEl.addEventListener("click", function (e) {
+    var row = e.target.closest(".dc-row");
+    if (!row) return;
+    var k = ROW.findIndex(function (r) { return r.el === row; });
+    if (k < 0) return;
+    setScope(k, currentT());
+    draw(true);
+  });
+
+  if (btn) btn.addEventListener("click", openClock);
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal || e.target.closest("#dashaClockClose")) closeClock();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !modal.hidden) closeClock();
+  });
+  // Nothing to animate behind a hidden tab, and a backgrounded rAF would
+  // otherwise resume with a stale text throttle.
+  document.addEventListener("visibilitychange", function () {
+    if (!open || mode !== "live") return;
+    if (document.hidden) stop(); else start();
+  });
+  // A language switch changes the glyphs and every unit suffix, and those are
+  // built from interpolated values, so apply() cannot repair them - redraw.
+  if (window.VedicTheme) {
+    window.VedicTheme.onChange(function () {
+      applyThemeHues();
+      for (var k = 0; k < DEPTH; k++) RING[k].key = "";   // force the fills to be rewritten
+      if (open) draw(true);
+    });
+  }
+  I18N.onChange(function () {
+    if (!open) return;
+    buildScopeOptions();   // the level names in it are translated
+    draw(true);
+  });
+
+  window.openDashaClock = openClock;
+})();
+</script>

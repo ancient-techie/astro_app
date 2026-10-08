@@ -204,7 +204,7 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v14";
+const CACHE_NAME = "vedic-chart-v15";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
@@ -555,6 +555,17 @@ LANG_SWITCH_CSS = """
   /* Tamil glyphs carry more detail per character than Latin, so a small
      size bump keeps them comfortably legible at the same layout width. */
   html[data-lang="ta"] body { font-size: 15px; }
+  html[data-theme="light"] .lang-switch {
+    border-color: rgba(138,106,18,0.45);
+    background: rgba(201,154,46,0.1);
+  }
+  html[data-theme="light"] .lang-switch button { color: rgba(43,36,24,0.72); }
+  html[data-theme="light"] .lang-switch button:hover { color: #7a5a06; }
+  html[data-theme="light"] .lang-switch button.active {
+    background: linear-gradient(135deg, #b98a1f 0%, #e0bf63 100%);
+    color: #241c06;
+    box-shadow: 0 2px 10px rgba(138,106,18,0.3);
+  }
 """
 
 # Inline <head> snippet: stamps the saved language onto <html> before the
@@ -574,6 +585,146 @@ LANG_BOOT_SCRIPT = """
 </script>
 """
 
+# The theme toggle, shared by every page exactly as the language one is. It
+# cycles rather than offering three buttons, because the app bar is already
+# crowded at phone width - the icon says which mode is on.
+THEME_SWITCH_HTML = """
+<button type="button" class="theme-switch" data-theme-btn
+        data-i18n-attr="aria-label:theme.toggle;title:theme.toggle">
+  <svg class="th-ico th-dark" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M20.5 14.3A8.6 8.6 0 0 1 9.7 3.5 8.5 8.5 0 1 0 20.5 14.3z"/>
+  </svg>
+  <svg class="th-ico th-light" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="4.2"/>
+    <path d="M12 2.4V5M12 19v2.6M4.2 12H1.6M22.4 12h-2.6M6.5 6.5 4.6 4.6M19.4 19.4l-1.9-1.9M17.5 6.5l1.9-1.9M4.6 19.4l1.9-1.9"/>
+  </svg>
+  <svg class="th-ico th-auto" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.6"/>
+    <path d="M12 3.4a8.6 8.6 0 0 1 0 17.2z" fill="currentColor" stroke="none"/>
+  </svg>
+</button>
+"""
+
+THEME_SWITCH_CSS = """
+  .theme-switch {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1.5px solid rgba(212,175,55,0.45);
+    border-radius: 999px;
+    background: rgba(212,175,55,0.06);
+    color: var(--primary-2);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, transform 0.12s;
+  }
+  .theme-switch:hover { background: rgba(212,175,55,0.16); }
+  .theme-switch:active { transform: scale(0.94); }
+  .theme-switch .th-ico {
+    width: 17px; height: 17px;
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+    display: none;
+  }
+  /* The icon names the preference, not the resolved theme: in auto it shows
+     the half disc whichever way the device happens to be set. */
+  .theme-switch .th-dark { display: block; }
+  html[data-theme-pref="dark"] .theme-switch .th-dark,
+  html[data-theme-pref="light"] .theme-switch .th-light,
+  html[data-theme-pref="auto"] .theme-switch .th-auto { display: block; }
+  html[data-theme-pref="light"] .theme-switch .th-dark,
+  html[data-theme-pref="auto"] .theme-switch .th-dark { display: none; }
+  html[data-theme="light"] .theme-switch {
+    border-color: rgba(138,106,18,0.45);
+    background: rgba(201,154,46,0.1);
+  }
+  html[data-theme="light"] .theme-switch:hover { background: rgba(201,154,46,0.22); }
+"""
+
+# Inline <head> snippet, the twin of LANG_BOOT_SCRIPT: stamps the saved theme
+# onto <html> before the first paint, so a light-theme user never sees a flash
+# of dark. Dark is the default - "auto" is a choice, not the fallback.
+#
+# Two attributes, deliberately: data-theme carries the *resolved* theme, which
+# is all the CSS keys off, and data-theme-pref carries what the user actually
+# picked, which is what the toggle's icon shows. They differ only in auto.
+THEME_BOOT_SCRIPT = """
+<script>
+  (function () {
+    var KEY = "vedic-theme";
+    var root = document.documentElement;
+    var pref = "dark";
+    try {
+      var saved = window.localStorage.getItem(KEY);
+      if (saved === "dark" || saved === "light" || saved === "auto") pref = saved;
+    } catch (err) {}
+
+    function media() {
+      try { return window.matchMedia("(prefers-color-scheme: light)"); } catch (err) { return null; }
+    }
+    function resolve(p) {
+      if (p !== "auto") return p;
+      var m = media();
+      return m && m.matches ? "light" : "dark";
+    }
+    // Anything that paints colour from JS rather than CSS - the Dasha Clock's
+    // dial, the Strength panel's charts - has to be told, because a custom
+    // property change cannot reach a value already written into an attribute.
+    var listeners = [];
+    var last = null;
+    function stamp() {
+      var theme = resolve(pref);
+      root.setAttribute("data-theme-pref", pref);
+      root.setAttribute("data-theme", theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", theme === "light" ? "#f7f2e7" : "#0b0d17");
+      if (theme !== last) {
+        last = theme;
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i](theme); } catch (err) { console.error("theme listener failed", err); }
+        }
+      }
+    }
+    stamp();
+
+    var ORDER = ["dark", "light", "auto"];
+    function set(p) {
+      if (ORDER.indexOf(p) === -1) return;
+      pref = p;
+      try { window.localStorage.setItem(KEY, p); } catch (err) {}
+      stamp();
+    }
+
+    // Delegated, so it works for a toggle that is not in the document yet -
+    // this script runs in <head>, before the app bar exists.
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("[data-theme-btn]") : null;
+      if (btn) set(ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length]);
+    });
+
+    // Only matters in auto: the device flipping to night should carry the
+    // page with it without a reload.
+    var m = media();
+    if (m) {
+      var onChange = function () { if (pref === "auto") stamp(); };
+      if (m.addEventListener) m.addEventListener("change", onChange);
+      else if (m.addListener) m.addListener(onChange);
+    }
+
+    window.VedicTheme = {
+      get: function () { return pref; },
+      resolved: function () { return resolve(pref); },
+      set: set,
+      onChange: function (fn) { if (typeof fn === "function") listeners.push(fn); }
+    };
+  })();
+</script>
+"""
+
+
 # Expose the toggle markup, its CSS and the boot script to every template,
 # so no render call has to pass them around. `t` renders the English text
 # that ships in the HTML - the browser re-renders it from the same key the
@@ -581,6 +732,9 @@ LANG_BOOT_SCRIPT = """
 app.jinja_env.globals["lang_switch"] = LANG_SWITCH_HTML
 app.jinja_env.globals["lang_switch_css"] = LANG_SWITCH_CSS
 app.jinja_env.globals["lang_boot"] = LANG_BOOT_SCRIPT
+app.jinja_env.globals["theme_switch"] = THEME_SWITCH_HTML
+app.jinja_env.globals["theme_switch_css"] = THEME_SWITCH_CSS
+app.jinja_env.globals["theme_boot"] = THEME_BOOT_SCRIPT
 app.jinja_env.globals["t"] = i18n.t
 app.jinja_env.globals["term"] = i18n.term
 app.jinja_env.globals["ordinal"] = i18n.ordinal
@@ -603,6 +757,13 @@ with open(_PLAYGROUND_HTML_PATH, "r", encoding="utf-8") as _f:
 _STRENGTH_PANEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strength_panel.html")
 with open(_STRENGTH_PANEL_PATH, "r", encoding="utf-8") as _f:
     STRENGTH_PANEL_HTML = _f.read()
+
+# The Dasha Clock overlay - nine Vimshottari levels running live. Same escape
+# hatch again: it is one slab of SVG/CSS/JS, and in its own file its template
+# literals never meet Jinja. Injected with {{ dasha_clock | safe }}.
+_DASHA_CLOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dasha_clock.html")
+with open(_DASHA_CLOCK_PATH, "r", encoding="utf-8") as _f:
+    DASHA_CLOCK_HTML = _f.read()
 
 
 @app.route("/play-with-chart")
@@ -1660,6 +1821,27 @@ def build_dasha_table(subject, birth_dt):
     return rows
 
 
+def dasha_clock_seed(subject):
+    """The three numbers the Dasha Clock overlay needs to run itself.
+
+    The rows above are truncated to whole days ("%Y-%m-%d"), which is useless
+    below the fourth level, so the clock re-derives the whole ladder in
+    milliseconds in the browser. All it needs is the exact birth instant plus
+    the same nakshatra balance build_dasha_table starts from.
+    """
+    abs_pos = subject.moon["abs_pos"] % 360.0
+    idx = int(abs_pos // NAKSHATRA_SPAN)
+    fraction_elapsed = (abs_pos % NAKSHATRA_SPAN) / NAKSHATRA_SPAN
+    lord = NAKSHATRA_LORDS[idx]
+    return {
+        # True UTC, so elapsed time is measured from the birth instant itself
+        # and no timezone enters the arithmetic.
+        "birth_utc": subject.iso_formatted_utc_datetime,
+        "lord0": lord,
+        "balance_years": DASHA_YEARS[lord] * (1 - fraction_elapsed),
+    }
+
+
 def build_sub_periods(lord, start_dt, years):
     """The nine Vimshottari sub-periods inside any one period - Antardashas
     inside a Mahadasha, Pratyantardashas inside an Antardasha, and so on.
@@ -1765,6 +1947,7 @@ PAGE_TEMPLATE = """
 <meta name="description" content="Generate sidereal Vedic (Jyotish) birth charts - Rashi and Navamsa, Nakshatra, and Vimshottari Dasha.">
 <meta name="theme-color" content="#0b0d17">
 {{ lang_boot | safe }}
+{{ theme_boot | safe }}
 <script src="/i18n.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.png" type="image/png">
@@ -1793,11 +1976,38 @@ PAGE_TEMPLATE = """
     --danger-bg: rgba(255,50,30,0.1);
     --danger-border: rgba(255,80,60,0.6);
     --danger-text: #ff8877;
+    --page-bg: radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, #12111e 100%);
+    --bar-bg: rgba(18, 17, 30, 0.72);
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 10px;
     --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-t: env(safe-area-inset-top, 0px);
+  }
+  /* Light is the same room by day: warm paper rather than cold white, so the
+     gold the whole app is built on still reads as gold. The gold tokens are
+     darkened here - #d4af37 on paper is a smear, not a colour - while the
+     gradients keep the brighter hue, because they sit behind dark text. */
+  html[data-theme="light"] {
+    --bg: #f7f2e7;
+    --surface: #fffdf7;
+    --surface-2: #f3ecdc;
+    --surface-3: #e9dfc9;
+    --border: rgba(138,106,18,0.3);
+    --text: #2b2418;
+    --muted: rgba(43,36,24,0.68);
+    --muted-2: rgba(43,36,24,0.45);
+    --primary: #9a7410;
+    --primary-2: #7a5a06;
+    --primary-grad: linear-gradient(135deg, #c99a2e 0%, #ecd089 100%);
+    --primary-grad-soft: linear-gradient(135deg, rgba(201,154,46,0.16) 0%, rgba(236,208,137,0.16) 100%);
+    --on-primary: #241c06;
+    --gold: #8a6a12;
+    --danger-bg: rgba(190,40,20,0.08);
+    --danger-border: rgba(170,45,25,0.55);
+    --danger-text: #9c2a10;
+    --page-bg: radial-gradient(ellipse at 20% -10%, #fffbf1 0%, #f9f3e4 60%, #f7f2e7 100%);
+    --bar-bg: rgba(255, 253, 247, 0.8);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { -webkit-text-size-adjust: 100%; }
@@ -1806,7 +2016,7 @@ PAGE_TEMPLATE = """
     min-height: 100vh;
     font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background:
-      radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, var(--bg) 100%);
+      var(--page-bg);
     background-attachment: fixed;
     color: var(--text);
     padding-top: var(--safe-t);
@@ -1824,7 +2034,7 @@ PAGE_TEMPLATE = """
     align-items: center;
     gap: 12px;
     padding: calc(14px + var(--safe-t)) 16px 14px;
-    background: rgba(18, 17, 30, 0.72);
+    background: var(--bar-bg);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
@@ -1835,6 +2045,18 @@ PAGE_TEMPLATE = """
     flex-shrink: 0;
     box-shadow: 0 4px 14px rgba(212,175,55,0.35);
   }
+  /* Literals that were chosen against a night ground and have to be restated
+     for paper: glows that only read as glow on dark, and the admin blue. */
+  html[data-theme="light"] .app-bar__title { text-shadow: none; }
+  html[data-theme="light"] .app-bar__icon { box-shadow: 0 3px 12px rgba(138,106,18,0.28); }
+  html[data-theme="light"] .admin-btn {
+    color: #2c3c86; background: rgba(60,90,200,0.08); border-color: rgba(60,90,200,0.45);
+  }
+  html[data-theme="light"] .admin-btn:hover {
+    background: rgba(60,90,200,0.16); border-color: #4257b8; color: #1f2c66;
+  }
+  html[data-theme="light"] .install-btn:hover,
+  html[data-theme="light"] .porutham-btn:hover { color: #5e4405; }
   .app-bar__titles { flex: 1; min-width: 0; }
   .app-bar__title {
     font-family: 'Cinzel', serif;
@@ -2665,7 +2887,7 @@ PAGE_TEMPLATE = """
   }
   .tab-pane { display: none; }
   .tab-pane.active-pane { display: block; }
-{{ lang_switch_css }}
+{{ lang_switch_css | safe }}{{ theme_switch_css | safe }}
 </style>
 </head>
 <body>
@@ -2676,6 +2898,7 @@ PAGE_TEMPLATE = """
     <p class="app-bar__title" data-i18n="app.title">Vedic Birth Chart</p>
     <p class="app-bar__subtitle" data-i18n="app.subtitle">Sidereal &middot; Lahiri ayanamsa</p>
   </div>
+  {{ theme_switch | safe }}
   {{ lang_switch | safe }}
   <a class="porutham-btn" href="/porutham">&#128142; <span data-i18n="nav.porutham">10 Porutham</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
@@ -2828,7 +3051,11 @@ PAGE_TEMPLATE = """
         </table>
       </div>
 
-      <div class="section-title"><span data-i18n="section.dasha">Vimshottari Mahadasha</span></div>
+      <div class="section-title"><span data-i18n="section.dasha">Vimshottari Mahadasha</span>
+        <button type="button" id="dashaClockBtn" class="dc-open-btn">
+          <span class="dc-btn-glyph" aria-hidden="true">&#9201;</span><span data-i18n="dc.open">Dasha Clock</span>
+        </button>
+      </div>
       <small class="hint" data-i18n="dasha.hint">Tap any row to expand its sub-periods (Antardasha &rarr; Pratyantardasha &rarr; Sookshma Dasha). Tap again to collapse.</small>
       <div class="table-wrap">
         <table id="dashaTable">
@@ -2905,6 +3132,11 @@ PAGE_TEMPLATE = """
           <div class="gochar-dialog-body" id="gocharModalBody"></div>
         </div>
       </div>
+
+      <!-- The Dasha Clock runs itself from these three numbers rather than
+           from the table's rows, which are truncated to whole days. -->
+      <script id="dashaClockSeed" type="application/json">{{ dasha_clock_json | safe }}</script>
+      {{ dasha_clock | safe }}
 
       <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span></div>
       <small class="hint" data-i18n="marriage.hint">
@@ -4114,6 +4346,7 @@ PORUTHAM_TEMPLATE = """
 <meta name="description" content="Check the ten traditional Tamil marriage poruthams from two birth stars and moon signs.">
 <meta name="theme-color" content="#0b0d17">
 {{ lang_boot | safe }}
+{{ theme_boot | safe }}
 <script src="/i18n.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.png" type="image/png">
@@ -4141,11 +4374,34 @@ PORUTHAM_TEMPLATE = """
     --ok: #6fd08c;
     --mid: #e0c477;
     --bad: #ff7a68;
+    --page-bg: radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, #12111e 100%);
+    --bar-bg: rgba(18, 17, 30, 0.72);
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 10px;
     --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-t: env(safe-area-inset-top, 0px);
+  }
+  /* The three verdict colours darken too: a pale green badge on paper reads
+     as "no colour at all", which is the one thing these must never do. */
+  html[data-theme="light"] {
+    --bg: #f7f2e7;
+    --surface: #fffdf7;
+    --surface-2: #f3ecdc;
+    --border: rgba(138,106,18,0.3);
+    --text: #2b2418;
+    --muted: rgba(43,36,24,0.68);
+    --muted-2: rgba(43,36,24,0.45);
+    --primary: #9a7410;
+    --primary-2: #7a5a06;
+    --primary-grad: linear-gradient(135deg, #c99a2e 0%, #ecd089 100%);
+    --on-primary: #241c06;
+    --gold: #8a6a12;
+    --ok: #1f7a43;
+    --mid: #96701a;
+    --bad: #b8321c;
+    --page-bg: radial-gradient(ellipse at 20% -10%, #fffbf1 0%, #f9f3e4 60%, #f7f2e7 100%);
+    --bar-bg: rgba(255, 253, 247, 0.8);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { -webkit-text-size-adjust: 100%; }
@@ -4153,7 +4409,7 @@ PORUTHAM_TEMPLATE = """
     margin: 0;
     min-height: 100vh;
     font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: radial-gradient(ellipse at 20% -10%, #1a1535 0%, #0c1030 60%, var(--bg) 100%);
+    background: var(--page-bg);
     background-attachment: fixed;
     color: var(--text);
     padding-top: var(--safe-t);
@@ -4168,12 +4424,24 @@ PORUTHAM_TEMPLATE = """
     align-items: center;
     gap: 12px;
     padding: calc(14px + var(--safe-t)) 16px 14px;
-    background: rgba(18, 17, 30, 0.72);
+    background: var(--bar-bg);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
   }
   .app-bar__icon { width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; }
+  /* Literals that were chosen against a night ground and have to be restated
+     for paper: glows that only read as glow on dark, and the admin blue. */
+  html[data-theme="light"] .app-bar__title { text-shadow: none; }
+  html[data-theme="light"] .app-bar__icon { box-shadow: 0 3px 12px rgba(138,106,18,0.28); }
+  html[data-theme="light"] .admin-btn {
+    color: #2c3c86; background: rgba(60,90,200,0.08); border-color: rgba(60,90,200,0.45);
+  }
+  html[data-theme="light"] .admin-btn:hover {
+    background: rgba(60,90,200,0.16); border-color: #4257b8; color: #1f2c66;
+  }
+  html[data-theme="light"] .install-btn:hover,
+  html[data-theme="light"] .porutham-btn:hover { color: #5e4405; }
   .app-bar__titles { flex: 1; min-width: 0; }
   .app-bar__title {
     font-family: 'Cinzel', serif;
@@ -4513,7 +4781,7 @@ PORUTHAM_TEMPLATE = """
     margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--muted-2);
     border-left: 2px solid var(--border); padding-left: 9px;
   }
-{{ lang_switch_css }}
+{{ lang_switch_css | safe }}{{ theme_switch_css | safe }}
 </style>
 </head>
 <body>
@@ -4535,6 +4803,7 @@ PORUTHAM_TEMPLATE = """
     <p class="app-bar__title" data-i18n="porutham.title">10 Porutham</p>
     <p class="app-bar__subtitle" data-i18n="porutham.subtitle">Traditional Tamil marriage matching</p>
   </div>
+  {{ theme_switch | safe }}
   {{ lang_switch | safe }}
   <a class="back-btn" href="/" data-i18n-attr="aria-label:porutham.back"
      aria-label="Back to chart">&#8592; <span data-i18n="porutham.back">Back to chart</span></a>
@@ -5114,11 +5383,16 @@ ADMIN_LOGIN_TEMPLATE = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="admin.login_page_title">Admin sign in - Vedic Birth Chart</title>
 {{ lang_boot | safe }}
+{{ theme_boot | safe }}
 <script src="/i18n.js"></script>
 <style>
   :root {
     --bg: #0b0d17; --surface: #151829; --border: #282d4c;
     --text: #f3f2fa; --muted: #9a9db8; --primary: #7c6bf2; --danger: #ff6b81;
+  }
+  html[data-theme="light"] {
+    --bg: #eef0f7; --surface: #ffffff; --border: #ccd1e4;
+    --text: #1b1d2b; --muted: #5b5f78; --primary: #5341d8; --danger: #c4293f;
   }
   * { box-sizing: border-box; }
   body {
@@ -5142,12 +5416,13 @@ ADMIN_LOGIN_TEMPLATE = """
   }
   .error { color: var(--danger); font-size: .85rem; margin: 0; }
   .lang-row { display: flex; justify-content: center; }
-{{ lang_switch_css }}
+{{ lang_switch_css | safe }}{{ theme_switch_css | safe }}
 </style>
 </head>
 <body>
 <form method="POST" action="{{ url_for('admin_login') }}">
-  <div class="lang-row">{{ lang_switch | safe }}</div>
+  <div class="lang-row">{{ theme_switch | safe }}
+  {{ lang_switch | safe }}</div>
   <h1 data-i18n="admin.login_title">Admin sign in</h1>
   {% if error %}<p class="error" data-i18n="{{ error }}">{{ t(error) }}</p>{% endif %}
   <div>
@@ -5169,11 +5444,16 @@ ADMIN_TEMPLATE = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="admin.page_title">Admin - Stored Birth Details</title>
 {{ lang_boot | safe }}
+{{ theme_boot | safe }}
 <script src="/i18n.js"></script>
 <style>
   :root {
     --bg: #0b0d17; --surface: #151829; --border: #282d4c;
     --text: #f3f2fa; --muted: #9a9db8; --primary: #7c6bf2;
+  }
+  html[data-theme="light"] {
+    --bg: #eef0f7; --surface: #ffffff; --border: #ccd1e4;
+    --text: #1b1d2b; --muted: #5b5f78; --primary: #5341d8;
   }
   * { box-sizing: border-box; }
   body {
@@ -5203,14 +5483,15 @@ ADMIN_TEMPLATE = """
     text-decoration: none; padding: 9px 12px; border-radius: 9px; font-weight: 600; font-size: .9rem;
   }
   .empty { color: var(--muted); }
-{{ lang_switch_css }}
+{{ lang_switch_css | safe }}{{ theme_switch_css | safe }}
 </style>
 </head>
 <body>
 <div class="top-bar">
   <h1><span data-i18n="admin.stored">Stored birth details</span> ({{ records|length }})</h1>
   <div class="links">
-    {{ lang_switch | safe }}
+    {{ theme_switch | safe }}
+  {{ lang_switch | safe }}
     <a href="{{ url_for('index') }}" data-i18n="admin.new_chart">New chart</a>
     <a href="{{ url_for('admin_logout') }}" data-i18n="admin.log_out">Log out</a>
   </div>
@@ -5383,6 +5664,7 @@ def build_chart_context(form):
         "marriage_json": json.dumps(marriage_links),
         "playground_url": build_playground_url(subject),
         "natal_positions_json": json.dumps(build_rashi_positions(subject)),
+        "dasha_clock_json": json.dumps(dasha_clock_seed(subject)),
     }
 
 
@@ -5408,6 +5690,7 @@ def generate():
             playground_url=ctx["playground_url"],
             natal_positions_json=ctx["natal_positions_json"],
             strength_panel=STRENGTH_PANEL_HTML,
+            dasha_clock_json=ctx["dasha_clock_json"], dasha_clock=DASHA_CLOCK_HTML,
         )
 
     except Exception as e:
@@ -5417,6 +5700,7 @@ def generate():
             marriage_json="{}",
             conjunctions=None, sign_conjunctions=None, playground_url=None,
             natal_positions_json="{}", strength_panel="",
+            dasha_clock_json="{}", dasha_clock="",
         )
 
 
