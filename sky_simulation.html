@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+     Graha Gochara - the nine grahas running geocentrically around a sidereal
+     rasi wheel.
+
+     The rest of the app shows a chart: one instant, frozen, read through the
+     square box of a South Indian kattam. This page shows the other thing a
+     kattam cannot - the sky itself turning, each graha at its own gati, vakri
+     loops doubling back where they really double back, grahas sliding into
+     Surya's glare and out again.
+
+     It is deliberately free of any chart. Graha longitudes are geocentric, so
+     they are the same read from anywhere on earth; there is nothing to ask the
+     reader for and nothing to save. Press the button, watch the sky from now.
+
+     Where the numbers come from
+     ---------------------------
+     /sky-positions hands back evenly spaced frames, each graha carrying both
+     its longitude and its gati in degrees a day. A position AND a tangent at
+     every sample is what lets this page join two samples with a cubic Hermite
+     and get motion that is smooth between them, and that turns at the true
+     vakri station instead of at whichever sample sat nearest it. Nothing about
+     the ephemeris is reimplemented here.
+
+     Its own file for the reason chart_playground.html and dasha_clock.html are
+     their own files: Jinja never re-parses a variable's value, so the template
+     literals and braces below reach the browser intact. The price is that the
+     reloader does not watch it - restart the server by hand after editing.
+     =========================================================================== -->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title data-i18n="sky.page_title">Graha Gochara - the live sky</title>
+<script>
+  /* Language and theme onto <html> before the first paint, exactly as the
+     other pages do it - no flash of the wrong one. */
+  (function () {
+    try {
+      var lang = window.localStorage.getItem("vedic-chart-lang");
+      if (lang === "en" || lang === "ta") {
+        document.documentElement.setAttribute("data-lang", lang);
+        document.documentElement.setAttribute("lang", lang);
+      }
+      var theme = window.localStorage.getItem("vedic-theme");
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      } else if (theme === "auto" && window.matchMedia
+                 && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (err) {}
+  })();
+</script>
+<script src="/i18n.js"></script>
+<meta name="description" content="A live geocentric simulation of the nine grahas moving around the sidereal rasi wheel.">
+<meta name="theme-color" content="#0b0d17">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VedicChart">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  /* The wheel is a drawing of the night sky and stays night in both themes,
+     for the same reason a rasi chart stays navy: it should look like itself
+     wherever it is read. Only the chrome around it follows the theme. */
+  :root {
+    --sky-bg: #0a0b16;
+    --sky-panel: rgba(255, 255, 255, 0.045);
+    --sky-border: rgba(212, 175, 55, 0.22);
+    --sky-ink: #e4dac9;
+    --sky-dim: rgba(228, 218, 201, 0.58);
+    --sky-gold: #d4af37;
+    --sky-gold-soft: rgba(212, 175, 55, 0.1);
+    --sky-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+  }
+  html[data-theme="light"] {
+    --sky-bg: #f4efe4;
+    --sky-panel: rgba(32, 26, 12, 0.045);
+    --sky-border: rgba(140, 110, 30, 0.3);
+    --sky-ink: #2b2415;
+    --sky-dim: rgba(43, 36, 21, 0.62);
+    --sky-gold: #8a6b14;
+    --sky-gold-soft: rgba(160, 125, 25, 0.12);
+    --sky-shadow: 0 10px 28px rgba(80, 65, 30, 0.2);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--sky-bg);
+    color: var(--sky-ink);
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px clamp(8px, 3vw, 20px) 28px;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+  html[data-theme="light"] body { background-image: none; }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .sky-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    max-width: 1320px;
+    margin: 0 auto 14px;
+  }
+  .sky-top h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.05rem, 3.6vw, 1.5rem);
+    letter-spacing: 0.12em;
+    color: var(--sky-gold);
+    line-height: 1.2;
+  }
+  .sky-top .sub {
+    flex: 1 1 240px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--sky-dim);
+    line-height: 1.5;
+  }
+  .sky-link {
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1.5px solid var(--sky-border);
+    background: var(--sky-gold-soft);
+    color: var(--sky-gold);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .sky-link:hover { border-color: var(--sky-gold); }
+  .lang-switch {
+    flex-shrink: 0;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1.5px solid var(--sky-border);
+    border-radius: 999px;
+    background: var(--sky-gold-soft);
+  }
+  .lang-switch button {
+    padding: 5px 11px;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--sky-dim);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .lang-switch button.active {
+    background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    color: #1c1710;
+  }
+
+  /* ── layout ──────────────────────────────────────────────────────────── */
+  .sky-main {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: flex;
+    gap: clamp(10px, 2vw, 22px);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .sky-stage {
+    position: relative;
+    flex: 1 1 520px;
+    min-width: 280px;
+  }
+  .sky-stage svg { display: block; width: 100%; height: auto; }
+  .sky-side {
+    flex: 1 1 320px;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* The chip floats over the wheel: the moment being shown, and whatever the
+     page is busy with. */
+  .sky-chip {
+    position: absolute;
+    top: 6px;
+    left: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(8, 9, 20, 0.72);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    color: #f0e6d2;
+    font-size: clamp(11px, 2.6vw, 13px);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+  }
+  .sky-chip .state { font-weight: 400; color: rgba(212, 175, 55, 0.85); }
+  .sky-chip.err { border-color: rgba(255, 90, 70, 0.6); color: #ffb3a6; }
+
+  /* ── controls ────────────────────────────────────────────────────────── */
+  .sky-controls {
+    max-width: 1320px;
+    margin: 14px auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--sky-border);
+    border-radius: 16px;
+    background: var(--sky-panel);
+  }
+  .sky-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .sky-group.grow { flex: 1 1 auto; justify-content: flex-end; }
+  .sky-btn {
+    font-family: 'Lato', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 40px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--sky-border);
+    background: var(--sky-gold-soft);
+    color: var(--sky-ink);
+    cursor: pointer;
+    line-height: 1;
+  }
+  .sky-btn:hover { border-color: var(--sky-gold); }
+  .sky-btn.on {
+    background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    color: #1c1710;
+    border-color: transparent;
+  }
+  .sky-btn.wide { font-size: 12px; letter-spacing: 0.04em; }
+  .sky-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sky-dim);
+  }
+  .sky-field select,
+  .sky-field input {
+    font-family: 'Lato', sans-serif;
+    font-size: 13px;
+    height: 36px;
+    padding: 0 8px;
+    border-radius: 10px;
+    border: 1px solid var(--sky-border);
+    background: var(--sky-panel);
+    color: var(--sky-ink);
+  }
+  .sky-toggles {
+    max-width: 1320px;
+    margin: 8px auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    font-size: 12px;
+    color: var(--sky-dim);
+  }
+  .sky-toggles label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sky-toggles input { accent-color: #d4af37; width: 15px; height: 15px; }
+
+  /* ── readout ─────────────────────────────────────────────────────────── */
+  .sky-card {
+    border: 1px solid var(--sky-border);
+    border-radius: 16px;
+    background: var(--sky-panel);
+    padding: 12px 14px;
+    box-shadow: var(--sky-shadow);
+  }
+  .sky-card h2 {
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.09em;
+    color: var(--sky-gold);
+    margin-bottom: 8px;
+  }
+  table.sky-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.sky-table th {
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sky-dim);
+    font-weight: 700;
+    padding: 0 6px 6px 0;
+    border-bottom: 1px solid var(--sky-border);
+  }
+  table.sky-table td {
+    padding: 5px 6px 5px 0;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  table.sky-table tr:last-child td { border-bottom: none; }
+  .g-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 7px;
+  }
+  .num { font-variant-numeric: tabular-nums; color: var(--sky-dim); }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+  .badge.vakri { background: rgba(255, 120, 90, 0.16); color: #ff9c86; }
+  .badge.margi { background: rgba(120, 220, 160, 0.14); color: #7fd6a4; }
+  .badge.asta  { background: rgba(255, 170, 40, 0.18); color: #ffc46b; }
+  html[data-theme="light"] .badge.vakri { background: rgba(190, 60, 30, 0.14); color: #a8341a; }
+  html[data-theme="light"] .badge.margi { background: rgba(20, 120, 70, 0.14); color: #13693d; }
+  html[data-theme="light"] .badge.asta  { background: rgba(180, 110, 0, 0.16); color: #8a5500; }
+  .sky-legend { font-size: 11.5px; line-height: 1.65; color: var(--sky-dim); }
+  .sky-legend p + p { margin-top: 7px; }
+
+  /* ── the wheel itself ────────────────────────────────────────────────── */
+  .sky-sector { cursor: default; transition: fill-opacity 0.15s; }
+  .sky-sector:hover { fill-opacity: 0.3; }
+  .sign-name {
+    font-family: 'Cinzel', serif;
+    font-size: 17px;
+    letter-spacing: 0.06em;
+    fill: rgba(236, 226, 206, 0.72);
+  }
+  html[data-lang="ta"] .sign-name { font-size: 19px; letter-spacing: 0; }
+  .sign-glyph { font-size: 26px; fill: rgba(236, 226, 206, 0.5); }
+  .g-glyph {
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    pointer-events: none;
+  }
+  /* Chandra's disc is the unlit side of the moon, nearly as dark as the ink
+     its abbreviation is drawn in. A halo keeps the label readable at new moon
+     and at full alike. */
+  .graha[data-code="Moon"] .g-glyph {
+    stroke: rgba(232, 240, 255, 0.85);
+    stroke-width: 2.6px;
+    paint-order: stroke;
+  }
+  html[data-lang="ta"] .g-glyph { font-size: 13px; }
+  .g-retro { font-size: 15px; font-weight: 700; fill: #ff9c86; }
+  .earth-label {
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    fill: rgba(240, 248, 255, 0.82);
+  }
+
+  @media (max-width: 760px) {
+    .sky-side { order: 3; }
+    .sky-controls { position: sticky; bottom: 0; z-index: 5; background: var(--sky-bg); }
+    table.sky-table { font-size: 11.5px; }
+    /* Five columns of nowrap text - "Uttara Bhadrapada . pada 4" among them -
+       set a line far wider than a phone, and the whole page scrolled
+       sideways with it. */
+    table.sky-table th, table.sky-table td { white-space: normal; overflow-wrap: anywhere; }
+    .sky-field input, .sky-field select { max-width: 46vw; }
+  }
+  /* On a phone the whole wheel is about 350px across, which leaves the rasi
+     names at five pixels. Drop the names, keep the glyphs, and draw both them
+     and the graha abbreviations larger. */
+  @media (max-width: 560px) {
+    .sign-name { display: none; }
+    .sign-glyph { font-size: 46px; }
+    .g-glyph { font-size: 24px; }
+    html[data-lang="ta"] .g-glyph { font-size: 21px; }
+    .g-retro { font-size: 24px; }
+    .earth-label { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sky-top">
+  <h1 data-i18n="sky.title">Graha Gochara</h1>
+  <p class="sub" data-i18n="sky.subtitle">The nine grahas moving as they move now.</p>
+  <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  </div>
+  <a class="sky-link" href="/" data-i18n="pg.back">Back to Generator</a>
+</header>
+
+<div class="sky-main">
+  <div class="sky-stage">
+    <svg id="skyWheel" viewBox="0 0 1040 1040" role="img"
+         data-i18n-attr="aria-label:sky.wheel_label"
+         aria-label="The twelve rasis with the nine grahas moving on them."></svg>
+    <div class="sky-chip" id="skyChip"><span id="skyMoment">&nbsp;</span><span class="state" id="skyState"></span></div>
+  </div>
+
+  <aside class="sky-side">
+    <div class="sky-card">
+      <table class="sky-table">
+        <thead>
+          <tr>
+            <th data-i18n="sky.tbl_graha">Graha</th>
+            <th data-i18n="sky.tbl_rasi">Rasi</th>
+            <th data-i18n="sky.tbl_nakshatra">Nakshatra</th>
+            <th data-i18n="sky.tbl_gati">Gati</th>
+            <th data-i18n="sky.tbl_state">State</th>
+          </tr>
+        </thead>
+        <tbody id="skyRows"></tbody>
+      </table>
+    </div>
+    <div class="sky-card sky-legend">
+      <h2 data-i18n="sky.legend_title">Reading the wheel</h2>
+      <p data-i18n="sky.legend_rings">The rings run outward in the classical order.</p>
+      <p data-i18n="sky.legend_asta">The gold wedge is Surya's glare.</p>
+      <p data-i18n="sky.legend_vakri">A path that doubles back on itself is a vakri loop.</p>
+      <p data-i18n="sky.legend_phase">Chandra carries its paksha.</p>
+      <p id="skyFrameNote"></p>
+    </div>
+  </aside>
+</div>
+
+<div class="sky-controls">
+  <div class="sky-group">
+    <button type="button" class="sky-btn" id="skyJumpBack"
+            data-i18n-attr="title:sky.jump_back;aria-label:sky.jump_back">&#8676;</button>
+    <button type="button" class="sky-btn" id="skyRev"
+            data-i18n-attr="title:sky.rev;aria-label:sky.rev">&#9664;</button>
+    <button type="button" class="sky-btn on" id="skyPlay"
+            data-i18n-attr="title:sky.pause;aria-label:sky.pause">&#10073;&#10073;</button>
+    <button type="button" class="sky-btn" id="skyFwd"
+            data-i18n-attr="title:sky.fwd;aria-label:sky.fwd">&#9654;</button>
+    <button type="button" class="sky-btn" id="skyJumpFwd"
+            data-i18n-attr="title:sky.jump_fwd;aria-label:sky.jump_fwd">&#8677;</button>
+  </div>
+
+  <label class="sky-field">
+    <span data-i18n="sky.pace">Pace</span>
+    <select id="skyPace"></select>
+  </label>
+
+  <label class="sky-field">
+    <span data-i18n="sky.jump_size">Step</span>
+    <select id="skyStep"></select>
+  </label>
+
+  <label class="sky-field">
+    <span data-i18n="sky.when">Moment</span>
+    <input type="datetime-local" id="skyWhen">
+  </label>
+
+  <div class="sky-group grow">
+    <button type="button" class="sky-btn wide" id="skyNow">&#8635; <span data-i18n="sky.now">Now</span></button>
+  </div>
+</div>
+
+<div class="sky-toggles">
+  <label><input type="checkbox" id="tgPaths" checked> <span data-i18n="sky.t_paths">Paths</span></label>
+  <label><input type="checkbox" id="tgLines"> <span data-i18n="sky.t_lines">Sight lines</span></label>
+  <label><input type="checkbox" id="tgAsta" checked> <span data-i18n="sky.t_asta">Surya's glare</span></label>
+  <label><input type="checkbox" id="tgNak" checked> <span data-i18n="sky.t_nak">Nakshatra ring</span></label>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // ── the geometry of the wheel ──────────────────────────────────────────
+  // Aries 0 sits at the top and the rasis run clockwise, the way the wheel in
+  // the sky is usually drawn for this app's readers. Everything else follows
+  // from that: screen point of longitude L at radius r is
+  // (cx + r sin L, cy - r cos L).
+  var CX = 520, CY = 520;
+  var R_SIGN_OUT = 504, R_SIGN_IN = 436;
+  var R_NAK_OUT = 432, R_NAK_IN = 416;
+  var R_EARTH = 80;
+  var R_FIELD_IN = 96;              // where the sector wedges start
+  var TRAIL_DEPTH = 15;             // how far a path spirals inward as it ages
+
+  var SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+               "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+  // Chromium hands these to the colour emoji font, which draws them as
+  // little purple tiles; U+FE0E asks for the text form, so they take the
+  // same ink as the rest of the wheel.
+  var SIGN_GLYPH = ["♈", "♉", "♊", "♋", "♌", "♍",
+                    "♎", "♏", "♐", "♑", "♒", "♓"]
+                   .map(function (ch) { return ch + "︎"; });
+  // Tattva tints, one per sign - fire, earth, air, water repeating. They are
+  // laid on at a whisper so the grahas stay the brightest thing on the wheel.
+  // This is also the layer the sign-by-sign light mix will be painted into.
+  var TATTVA = ["#ff5a3c", "#4caf6a", "#6fa8ff", "#3f7fd8"];
+
+  // Rings outward in the classical order - Chandra nearest the earth, the
+  // nodes outermost. The ring is where a graha is drawn; its longitude is
+  // what the ring says.
+  var GRAHAS = [
+    { code: "Moon",    ring: 118, fill: "#E8F0FF", ink: "#0a1030", r: 19 },
+    { code: "Mercury", ring: 158, fill: "#00CC33", ink: "#04210b", r: 17 },
+    { code: "Venus",   ring: 198, fill: "#FFB0C8", ink: "#3a0020", r: 17 },
+    { code: "Sun",     ring: 240, fill: "#FF9900", ink: "#1a0500", r: 21 },
+    { code: "Mars",    ring: 282, fill: "#FF2200", ink: "#ffffff", r: 17 },
+    { code: "Jupiter", ring: 322, fill: "#FFD700", ink: "#1a0800", r: 20 },
+    { code: "Saturn",  ring: 360, fill: "#1144CC", ink: "#c0d4ff", r: 19 },
+    { code: "Rahu",    ring: 396, fill: "#151515", ink: "#ddccbb", r: 15 },
+    { code: "Ketu",    ring: 396, fill: "#5C1500", ink: "#FF8866", r: 15 }
+  ];
+  // The order the table reads in, which is the order every other table in the
+  // app reads in.
+  var TABLE_ORDER = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus",
+                     "Saturn", "Rahu", "Ketu"];
+  var BY_CODE = {};
+  GRAHAS.forEach(function (g) { BY_CODE[g.code] = g; });
+
+  // How far back a path is allowed to run, per graha, in days: a little under
+  // one turn of the wheel, so Chandra's path never draws over itself and
+  // Sani's is not cut off after a fortnight.
+  // A path long enough to wrap its ring stops saying anything - it is just
+  // the ring drawn again. Roughly a third of a turn for the quick grahas, and
+  // for the slow ones as far back as the history window can reach.
+  var PATH_DAYS = {
+    Moon: 10, Mercury: 70, Venus: 170, Sun: 130, Mars: 320,
+    Jupiter: 1600, Saturn: 4200, Rahu: 2400, Ketu: 2400
+  };
+
+  var DEG = Math.PI / 180;
+  var DAY_MS = 86400000;
+  var NAK_SPAN = 360 / 27;
+
+  function pt(lon, r) {
+    return [CX + r * Math.sin(lon * DEG), CY - r * Math.cos(lon * DEG)];
+  }
+  function norm360(d) { return ((d % 360) + 360) % 360; }
+  function sepDeg(a, b) {
+    var d = Math.abs(norm360(a) - norm360(b));
+    return d > 180 ? 360 - d : d;
+  }
+  // Wedge between two longitudes, clockwise from l0 to l1, between two radii.
+  function wedge(l0, l1, rIn, rOut) {
+    var a = pt(l0, rOut), b = pt(l1, rOut), c = pt(l1, rIn), d = pt(l0, rIn);
+    var big = (norm360(l1 - l0) > 180) ? 1 : 0;
+    return "M" + a[0].toFixed(2) + "," + a[1].toFixed(2) +
+           "A" + rOut + "," + rOut + " 0 " + big + " 1 " + b[0].toFixed(2) + "," + b[1].toFixed(2) +
+           "L" + c[0].toFixed(2) + "," + c[1].toFixed(2) +
+           "A" + rIn + "," + rIn + " 0 " + big + " 0 " + d[0].toFixed(2) + "," + d[1].toFixed(2) + "Z";
+  }
+  function el(name, attrs, parent) {
+    var node = document.createElementNS(SVGNS, name);
+    for (var k in attrs) {
+      if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+    }
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  // ── the standing parts of the wheel ────────────────────────────────────
+  var svg = document.getElementById("skyWheel");
+  var layer = {};
+  ["defs", "field", "sectors", "fx", "ticks", "labels", "rings", "asta",
+   "trails", "lines", "earth", "grahas"].forEach(function (name) {
+    layer[name] = el(name === "defs" ? "defs" : "g", { id: "sky-" + name }, svg);
+  });
+
+  (function buildDefs() {
+    var sky = el("radialGradient", { id: "gradField", cx: "50%", cy: "45%", r: "62%" }, layer.defs);
+    el("stop", { offset: "0%", "stop-color": "#141a3a" }, sky);
+    el("stop", { offset: "60%", "stop-color": "#0d1030" }, sky);
+    el("stop", { offset: "100%", "stop-color": "#07081a" }, sky);
+
+    var earth = el("radialGradient", { id: "gradEarth", cx: "36%", cy: "32%", r: "78%" }, layer.defs);
+    el("stop", { offset: "0%", "stop-color": "#7fd0ff" }, earth);
+    el("stop", { offset: "45%", "stop-color": "#2a6fd0" }, earth);
+    el("stop", { offset: "100%", "stop-color": "#0a2250" }, earth);
+
+    // Surya's glare fades outward: brightest against the earth, thinning as
+    // it reaches the outer rings.
+    var glare = el("radialGradient", { id: "gradAsta", cx: "50%", cy: "50%", r: "50%" }, layer.defs);
+    el("stop", { offset: "0%", "stop-color": "#ffcc55", "stop-opacity": "0.34" }, glare);
+    el("stop", { offset: "55%", "stop-color": "#ffaa22", "stop-opacity": "0.2" }, glare);
+    el("stop", { offset: "100%", "stop-color": "#ff9900", "stop-opacity": "0.05" }, glare);
+  })();
+
+  el("circle", { cx: CX, cy: CY, r: R_SIGN_OUT, fill: "url(#gradField)" }, layer.field);
+  // A handful of fixed stars, so the field reads as sky rather than as paper.
+  (function stars() {
+    var seed = 7;
+    for (var i = 0; i < 160; i++) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      var a = (seed / 2147483648) * 360;
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      var rad = R_EARTH + 12 + (seed / 2147483648) * (R_SIGN_IN - R_EARTH - 20);
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      var p = pt(a, rad);
+      el("circle", {
+        cx: p[0].toFixed(1), cy: p[1].toFixed(1),
+        r: (0.7 + (seed / 2147483648) * 1.3).toFixed(2),
+        fill: "#ffffff", "fill-opacity": (0.12 + (seed / 2147483648) * 0.3).toFixed(2)
+      }, layer.field);
+    }
+  })();
+
+  for (var s = 0; s < 12; s++) {
+    var l0 = s * 30;
+    // The sector is addressable by sign - the light mix that will be painted
+    // per rasi hangs off these, and off the empty #sky-fx layer above them.
+    el("path", {
+      d: wedge(l0, l0 + 30, R_FIELD_IN, R_SIGN_OUT),
+      fill: TATTVA[s % 4], "fill-opacity": 0.07,
+      "class": "sky-sector", "data-sign": SIGNS[s]
+    }, layer.sectors);
+    el("path", {
+      d: wedge(l0, l0 + 30, R_SIGN_IN, R_SIGN_OUT),
+      fill: TATTVA[s % 4], "fill-opacity": 0.1, "pointer-events": "none"
+    }, layer.sectors);
+
+    var spokeA = pt(l0, R_FIELD_IN), spokeB = pt(l0, R_SIGN_OUT);
+    el("line", {
+      x1: spokeA[0].toFixed(1), y1: spokeA[1].toFixed(1),
+      x2: spokeB[0].toFixed(1), y2: spokeB[1].toFixed(1),
+      stroke: "#d4af37", "stroke-opacity": 0.3, "stroke-width": 1
+    }, layer.ticks);
+
+    var mid = l0 + 15;
+    var gp = pt(mid, 492);
+    el("text", {
+      x: gp[0].toFixed(1), y: gp[1].toFixed(1), "class": "sign-glyph",
+      "text-anchor": "middle", "dominant-baseline": "middle"
+    }, layer.labels).textContent = SIGN_GLYPH[s];
+    var np = pt(mid, 458);
+    var nameEl = el("text", {
+      x: np[0].toFixed(1), y: np[1].toFixed(1), "class": "sign-name",
+      "text-anchor": "middle", "dominant-baseline": "middle",
+      "data-i18n-term": "sign:" + SIGNS[s]
+    }, layer.labels);
+    nameEl.textContent = SIGNS[s];
+  }
+  [R_SIGN_IN, R_SIGN_OUT].forEach(function (r) {
+    el("circle", { cx: CX, cy: CY, r: r, fill: "none", stroke: "#d4af37", "stroke-opacity": 0.35 }, layer.ticks);
+  });
+
+  // The 27 nakshatra divisions, as ticks only - named here they would crowd
+  // out the rasis, and the table names the one each graha stands in.
+  var nakGroup = el("g", { id: "sky-nak" }, layer.ticks);
+  el("circle", { cx: CX, cy: CY, r: R_NAK_OUT, fill: "none", stroke: "#8fb8ff", "stroke-opacity": 0.16 }, nakGroup);
+  el("circle", { cx: CX, cy: CY, r: R_NAK_IN, fill: "none", stroke: "#8fb8ff", "stroke-opacity": 0.16 }, nakGroup);
+  for (var n = 0; n < 27; n++) {
+    var a0 = pt(n * NAK_SPAN, R_NAK_IN), a1 = pt(n * NAK_SPAN, R_NAK_OUT);
+    el("line", {
+      x1: a0[0].toFixed(1), y1: a0[1].toFixed(1), x2: a1[0].toFixed(1), y2: a1[1].toFixed(1),
+      stroke: "#8fb8ff", "stroke-opacity": 0.3, "stroke-width": 1
+    }, nakGroup);
+  }
+
+  GRAHAS.forEach(function (g, i) {
+    if (i > 0 && GRAHAS[i - 1].ring === g.ring) return;   // Rahu and Ketu share one
+    el("circle", {
+      cx: CX, cy: CY, r: g.ring, fill: "none",
+      stroke: g.fill, "stroke-opacity": 0.16, "stroke-width": 1,
+      "stroke-dasharray": "2 6"
+    }, layer.rings);
+  });
+
+  var astaWedge = el("path", { d: "", fill: "url(#gradAsta)", "pointer-events": "none" }, layer.asta);
+
+  el("circle", { cx: CX, cy: CY, r: R_EARTH, fill: "url(#gradEarth)" }, layer.earth);
+  el("circle", { cx: CX, cy: CY, r: R_EARTH, fill: "none", stroke: "#9fd0ff", "stroke-opacity": 0.4 }, layer.earth);
+  // Inside the globe rather than under it: Chandra's ring passes close
+  // enough to the earth that a label below it gets sat on twice a month.
+  el("text", {
+    x: CX, y: CY + 40, "class": "earth-label",
+    "text-anchor": "middle", "data-i18n": "sky.earth"
+  }, layer.earth).textContent = "Earth";
+
+  // ── per-graha nodes ────────────────────────────────────────────────────
+  var node = {};
+  GRAHAS.forEach(function (g) {
+    var trail = {
+      margi: el("path", { d: "", fill: "none", stroke: g.fill, "stroke-opacity": 0.45,
+                          "stroke-width": 2.4, "stroke-linecap": "round" }, layer.trails),
+      vakri: el("path", { d: "", fill: "none", stroke: "#ff8a6a", "stroke-opacity": 0.85,
+                          "stroke-width": 3, "stroke-linecap": "round",
+                          "stroke-dasharray": "5 4" }, layer.trails)
+    };
+    var line = el("line", {
+      x1: CX, y1: CY, x2: CX, y2: CY, stroke: g.fill,
+      "stroke-opacity": 0.22, "stroke-width": 1
+    }, layer.lines);
+
+    var group = el("g", { "class": "graha", "data-code": g.code }, layer.grahas);
+    var halo = el("circle", { r: g.r + 9, fill: "#ffb020", "fill-opacity": 0 }, group);
+    var disc = el("circle", { r: g.r, fill: g.fill, stroke: "rgba(0,0,0,0.45)", "stroke-width": 1 }, group);
+    var phase = (g.code === "Moon")
+      ? el("path", { d: "", fill: "#fff6e0", "pointer-events": "none" }, group)
+      : null;
+    if (phase) disc.setAttribute("fill", "#39406b");   // Chandra's unlit side
+    var glyph = el("text", {
+      "class": "g-glyph", fill: g.ink, "text-anchor": "middle",
+      "dominant-baseline": "central", y: 0,
+      "data-i18n-term": "planet_abbr:" + g.code
+    }, group);
+    glyph.textContent = g.code.slice(0, 2);
+    var retro = el("text", {
+      "class": "g-retro", x: g.r + 7, y: -g.r + 2, "text-anchor": "start",
+      "dominant-baseline": "central", opacity: 0
+    }, group);
+    retro.textContent = "℞";
+
+    node[g.code] = { g: g, group: group, halo: halo, disc: disc, phase: phase,
+                     glyph: glyph, retro: retro, line: line, trail: trail };
+  });
+
+  // ── the table ──────────────────────────────────────────────────────────
+  var rows = {};
+  var tbody = document.getElementById("skyRows");
+  TABLE_ORDER.forEach(function (code) {
+    var g = BY_CODE[code];
+    var tr = document.createElement("tr");
+
+    var tdName = document.createElement("td");
+    var chip = document.createElement("span");
+    chip.className = "g-chip";
+    chip.style.background = g.fill;
+    chip.style.color = g.ink;
+    chip.setAttribute("data-i18n-term", "planet_abbr:" + code);
+    chip.textContent = code.slice(0, 2);
+    var full = document.createElement("span");
+    full.setAttribute("data-i18n-term", "planet:" + code);
+    full.textContent = code;
+    tdName.appendChild(chip);
+    tdName.appendChild(full);
+
+    var tdRasi = document.createElement("td");
+    var tdNak = document.createElement("td");
+    var tdGati = document.createElement("td");
+    tdGati.className = "num";
+    var tdState = document.createElement("td");
+
+    [tdName, tdRasi, tdNak, tdGati, tdState].forEach(function (td) { tr.appendChild(td); });
+    tbody.appendChild(tr);
+    rows[code] = { rasi: tdRasi, nak: tdNak, gati: tdGati, state: tdState };
+  });
+
+  // ── the clock ──────────────────────────────────────────────────────────
+  // simMs is the instant being shown. pace is how much sky time one real
+  // second buys, in days; dir is which way time runs.
+  var PACES = [
+    { key: "sky.sp_hour",    days: 1 / 24 },
+    { key: "sky.sp_quarter", days: 0.25 },
+    { key: "sky.sp_day",     days: 1 },
+    { key: "sky.sp_week",    days: 7 },
+    { key: "sky.sp_month",   days: 30 }
+  ];
+  var STEPS = [
+    { key: "sky.j_hour",  unit: "hour" },
+    { key: "sky.j_day",   unit: "day" },
+    { key: "sky.j_week",  unit: "week" },
+    { key: "sky.j_month", unit: "month" },
+    { key: "sky.j_year",  unit: "year" }
+  ];
+  var paceSel = document.getElementById("skyPace");
+  var stepSel = document.getElementById("skyStep");
+  PACES.forEach(function (p, i) {
+    var o = document.createElement("option");
+    o.value = String(i);
+    o.setAttribute("data-i18n", p.key);
+    paceSel.appendChild(o);
+  });
+  STEPS.forEach(function (p, i) {
+    var o = document.createElement("option");
+    o.value = String(i);
+    o.setAttribute("data-i18n", p.key);
+    stepSel.appendChild(o);
+  });
+  paceSel.value = "2";     // a day a second: Chandra crosses a rasi in a breath
+  stepSel.value = "1";
+
+  var simMs = Date.now();
+  var dir = 1;
+  var running = true;
+  var lastTick = 0;
+
+  function pace() { return PACES[parseInt(paceSel.value, 10)].days; }
+
+  // ── the ephemeris window ───────────────────────────────────────────────
+  // One window of evenly spaced frames at a time, with the playhead kept away
+  // from its edges. The window is replaced, never patched: a replacement
+  // costs a quarter of a second on the server and the old one keeps drawing
+  // until it lands, so nothing ever stalls mid-run.
+  var WINDOW_FRAMES = 360;
+  var buf = null;              // { stepMs, startMs, spanMs, n, lon:{}, spd:{} }
+  var orbs = null;
+  var nakNames = null;
+  var fetching = false;
+  var fetchFailed = null;
+
+  // A second, much coarser window, one day a frame and a year long, kept only
+  // so the paths have something to be drawn from the moment the page opens.
+  // Without it a path could only reach back as far as the running window -
+  // a day or two - and Sukra's vakri loop, the one thing worth seeing on this
+  // wheel, takes six weeks to draw itself.
+  var HIST_FRAMES = 366;
+  var hist = null;
+  var histFetching = false;
+
+  // How far back a path should be able to reach, and how finely, depends on
+  // how fast the clock is running: a year at a day a frame is a minute of
+  // watching at a day a second, and four seconds of it at a month a second.
+  function histSpec() {
+    var days = pace();
+    if (days <= 1) return { span: 365, stepMin: 1440 };
+    if (days <= 7) return { span: 1825, stepMin: 7200 };
+    return { span: 7300, stepMin: 28800 };
+  }
+
+  // A window is sized so that one fetch covers several seconds of running,
+  // and so that no step is ever coarse enough to lose Chandra - half a day is
+  // the floor, and with a tangent at each end a cubic holds her to a few arc
+  // minutes even there.
+  function stepMinutesFor(days) {
+    if (days <= 1 / 24) return 5;
+    if (days <= 0.25) return 15;
+    if (days <= 1) return 30;
+    if (days <= 7) return 180;
+    return 720;
+  }
+
+  function utcStamp(ms) {
+    var d = new Date(ms);
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate()) +
+           "T" + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes());
+  }
+
+  function buildWindow(data) {
+    var stepMs = data.step_minutes * 60000;
+    // The server's start is a UTC wall time; Date.UTC turns it back into the
+    // same instant this page counts in.
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(data.start);
+    var startMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+    var n = data.frames.length;
+    var lon = {}, spd = {};
+
+    GRAHAS.forEach(function (g) {
+      var L = new Float64Array(n), S = new Float64Array(n);
+      var prev = null;
+      for (var i = 0; i < n; i++) {
+        var f = data.frames[i][g.code];
+        var v = f[0];
+        // Unwrapped, so a graha crossing Pisces into Aries does not spin the
+        // interpolation all the way back round the wheel.
+        if (prev !== null) {
+          var d = v - ((prev % 360) + 360) % 360;
+          if (d > 180) d -= 360; else if (d < -180) d += 360;
+          v = prev + d;
+        }
+        L[i] = v; S[i] = f[1];
+        prev = v;
+      }
+      lon[g.code] = L; spd[g.code] = S;
+    });
+
+    if (data.orbs) orbs = data.orbs;
+    if (data.nakshatras) nakNames = data.nakshatras;
+    return { stepMs: stepMs, startMs: startMs, spanMs: stepMs * (n - 1), n: n,
+             stepMin: data.step_minutes, lon: lon, spd: spd };
+  }
+
+  function askServer(startMs, stepMin, count) {
+    return fetch("/sky-positions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start: utcStamp(startMs), step_minutes: stepMin, count: count
+      })
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || "sky.err_generic");
+        return data;
+      });
+    });
+  }
+
+  function requestWindow(stepMin, anchorMs, forward) {
+    var spanMs = stepMin * 60000 * (WINDOW_FRAMES - 1);
+    // The playhead sits a quarter in when running forward, three quarters in
+    // when running back, so there is always room ahead and a little history
+    // behind for the paths.
+    var startMs = anchorMs - spanMs * (forward ? 0.25 : 0.75);
+    fetching = true;
+    return askServer(startMs, stepMin, WINDOW_FRAMES).then(function (data) {
+      buf = buildWindow(data);
+      fetchFailed = null;
+      fetching = false;
+    }).catch(function (err) {
+      fetching = false;
+      fetchFailed = (err && err.message && err.message.indexOf("sky.") === 0)
+        ? err.message : "sky.err_generic";
+      running = false;
+      syncTransport();
+    });
+  }
+
+  function requestHistory(anchorMs) {
+    var spec = histSpec();
+    histFetching = true;
+    // Four fifths behind the playhead and one fifth ahead, so running on does
+    // not immediately exhaust it. Coarse, but every frame still carries its
+    // gati, so the cubic reads a smooth path out of it even for Chandra.
+    return askServer(anchorMs - spec.span * 0.8 * DAY_MS, spec.stepMin, HIST_FRAMES)
+      .then(function (data) {
+        hist = buildWindow(data);
+        histFetching = false;
+      }).catch(function () {
+        histFetching = false;    // the running window alone still works
+      });
+  }
+
+  function covers(ms, frames) {
+    if (!buf) return false;
+    var pad = buf.stepMs * frames;
+    return ms >= buf.startMs + pad && ms <= buf.startMs + buf.spanMs - pad;
+  }
+
+  function ensureWindow() {
+    // A new history is wanted when the playhead nears either end of the one
+    // in hand, or when the pace calls for a different reach.
+    if (!histFetching) {
+      var spec = histSpec();
+      var frac = hist ? (simMs - hist.startMs) / hist.spanMs : -1;
+      if (!hist || hist.stepMin !== spec.stepMin || frac < 0.05 || frac > 0.95) {
+        requestHistory(simMs);
+      }
+    }
+    if (fetching) return;
+    var want = stepMinutesFor(pace());
+    if (!buf || buf.stepMin !== want || !covers(simMs, 2)) {
+      requestWindow(want, simMs, dir > 0);
+      return;
+    }
+    if (!running) return;
+    var frac = (simMs - buf.startMs) / buf.spanMs;
+    if ((dir > 0 && frac > 0.7) || (dir < 0 && frac < 0.3)) requestWindow(want, simMs, dir > 0);
+  }
+
+  // ── reading the window ─────────────────────────────────────────────────
+  // Cubic Hermite between two frames: position and tangent are both known at
+  // each end, which is what makes a vakri station land where it belongs
+  // instead of being rounded to the nearest sample.
+  function sampleFrom(src, code, ms) {
+    var u = (ms - src.startMs) / src.stepMs;
+    var i = Math.floor(u);
+    if (i < 0) i = 0;
+    if (i > src.n - 2) i = src.n - 2;
+    var f = u - i;
+    if (f < 0) f = 0; else if (f > 1) f = 1;
+    var days = src.stepMs / DAY_MS;
+    var L = src.lon[code], S = src.spd[code];
+    var p0 = L[i], p1 = L[i + 1], m0 = S[i] * days, m1 = S[i + 1] * days;
+    var f2 = f * f, f3 = f2 * f;
+    var lon = (2 * f3 - 3 * f2 + 1) * p0 + (f3 - 2 * f2 + f) * m0 +
+              (-2 * f3 + 3 * f2) * p1 + (f3 - f2) * m1;
+    var spd = ((6 * f2 - 6 * f) * p0 + (3 * f2 - 4 * f + 1) * m0 +
+               (-6 * f2 + 6 * f) * p1 + (3 * f2 - 2 * f) * m1) / days;
+    return { lon: lon, spd: spd };
+  }
+
+  function sampleOne(code, ms) { return sampleFrom(buf, code, ms); }
+
+  function sampleAll(ms) {
+    var out = {};
+    GRAHAS.forEach(function (g) { out[g.code] = sampleOne(g.code, ms); });
+    return out;
+  }
+
+  function isAsta(code, lon, sunLon, vakri) {
+    if (!orbs || code === "Sun") return false;
+    var orb = orbs[code];
+    if (orb === undefined) return false;
+    if (typeof orb === "object") orb = vakri ? orb.retrograde : orb.direct;
+    return sepDeg(lon, sunLon) <= orb;
+  }
+
+  // ── the paths ──────────────────────────────────────────────────────────
+  // A path is not accumulated as the clock runs - it is read back out of the
+  // windows every time it is drawn. So it is the same path whether you ran to
+  // this moment or jumped to it, it recedes properly when the clock runs
+  // backwards, and no amount of watching can crowd it out.
+  //
+  // Each point carries the gati the ephemeris gave it, so a stretch is
+  // painted vakri because the graha was vakri there, never because two drawn
+  // points happened to differ the wrong way.
+  var PATH_POINTS = 96;
+
+  function sampleBest(code, ms) {
+    // The running window first - it is the finer of the two wherever it
+    // reaches - and the history window for everything older.
+    if (buf && ms >= buf.startMs && ms <= buf.startMs + buf.spanMs) {
+      return sampleFrom(buf, code, ms);
+    }
+    if (hist && ms >= hist.startMs && ms <= hist.startMs + hist.spanMs) {
+      return sampleFrom(hist, code, ms);
+    }
+    return null;
+  }
+
+  function drawTrails() {
+    var earliest = null;
+    if (hist) earliest = hist.startMs;
+    if (buf && (earliest === null || buf.startMs < earliest)) earliest = buf.startMs;
+
+    GRAHAS.forEach(function (g) {
+      var nd = node[g.code];
+      if (!showPaths || earliest === null) {
+        nd.trail.margi.setAttribute("d", "");
+        nd.trail.vakri.setAttribute("d", "");
+        return;
+      }
+      // Its own reach - a little under one turn of the wheel, so Chandra's
+      // path never laps itself and Sani's is not cut off after a fortnight -
+      // clipped to however far back the windows actually go.
+      var reach = Math.min(PATH_DAYS[g.code] * DAY_MS, shownMs - earliest);
+      if (reach <= 0) {
+        nd.trail.margi.setAttribute("d", "");
+        nd.trail.vakri.setAttribute("d", "");
+        return;
+      }
+
+      var alwaysVakri = (g.code === "Rahu" || g.code === "Ketu");
+      var dM = "", dV = "", wasVakri = null, prev = null;
+      for (var k = PATH_POINTS; k >= 0; k--) {
+        var age = k / PATH_POINTS;                 // 1 at the far end, 0 at the graha
+        var s = sampleBest(g.code, shownMs - reach * age);
+        if (!s) { prev = null; wasVakri = null; continue; }
+        // The path spirals inward as it ages, so a vakri loop reads as a loop
+        // instead of drawing over itself.
+        var p = pt(s.lon, g.ring - TRAIL_DEPTH * age);
+        var seg = p[0].toFixed(1) + "," + p[1].toFixed(1);
+        if (prev) {
+          var vakri = alwaysVakri || s.spd < 0;    // the end it arrives at
+          if (vakri !== wasVakri) {
+            var head = "M" + prev.x + "," + prev.y + "L" + seg;
+            if (vakri) dV += head; else dM += head;
+            wasVakri = vakri;
+          } else if (vakri) { dV += "L" + seg; } else { dM += "L" + seg; }
+        }
+        prev = { x: p[0].toFixed(1), y: p[1].toFixed(1) };
+      }
+      nd.trail.margi.setAttribute("d", dM);
+      nd.trail.vakri.setAttribute("d", dV);
+    });
+  }
+
+  // ── Chandra's paksha ───────────────────────────────────────────────────
+  // The lit limb faces Surya, always. Drawn in a frame where Surya lies along
+  // +x and then turned to point at wherever Surya actually is on the wheel.
+  function moonPhasePath(elong, r) {
+    var c = Math.cos(elong * DEG);
+    var rx = Math.abs(r * c).toFixed(2);
+    var sweep = c > 0 ? 0 : 1;
+    return "M0," + (-r) + "A" + r + "," + r + " 0 0 1 0," + r +
+           "A" + rx + "," + r + " 0 0 " + sweep + " 0," + (-r) + "Z";
+  }
+
+  // ── drawing one instant ────────────────────────────────────────────────
+  var showPaths = true, showLines = false, showAsta = true;
+  var lastTableMs = 0;
+  var shownMs = Date.now();
+  var lastWordsAt = -1e9;
+  var lastTrailAt = -1e9;
+
+  function fmtDMS(deg) {
+    var d = Math.floor(deg);
+    var m = (deg - d) * 60;
+    return d + "°" + (m < 10 ? "0" : "") + m.toFixed(1) + "'";
+  }
+
+  function render(sample) {
+    var sunLon = norm360(sample.Sun.lon);
+
+    if (showAsta) {
+      // One indicative wedge at the widest classical orb; the table carries
+      // each graha's own verdict.
+      astaWedge.setAttribute("d", wedge(sunLon - 17, sunLon + 17, R_FIELD_IN, 408));
+      astaWedge.setAttribute("opacity", 1);
+    } else {
+      astaWedge.setAttribute("opacity", 0);
+    }
+
+    var now = performance.now();
+    GRAHAS.forEach(function (g) {
+      var nd = node[g.code];
+      var s = sample[g.code];
+      var lon = norm360(s.lon);
+      var p = pt(lon, g.ring);
+      nd.group.setAttribute("transform", "translate(" + p[0].toFixed(2) + "," + p[1].toFixed(2) + ")");
+
+      var vakri = (g.code === "Rahu" || g.code === "Ketu") ? true : s.spd < 0;
+      nd.retro.setAttribute("opacity", vakri ? 1 : 0);
+
+      var asta = isAsta(g.code, lon, sunLon, vakri);
+      // A slow pulse, so a graha going asta announces itself even when the
+      // wheel is held still.
+      nd.halo.setAttribute("fill-opacity",
+        asta ? (0.3 + 0.22 * Math.sin(now / 420)).toFixed(3) : 0);
+      nd.disc.setAttribute("opacity", asta ? 0.55 : 1);
+
+      if (nd.phase) {
+        var elong = norm360(lon - sunLon);
+        nd.phase.setAttribute("d", moonPhasePath(elong, g.r - 1));
+        var sp = pt(sunLon, BY_CODE.Sun.ring);
+        var ang = Math.atan2(sp[1] - p[1], sp[0] - p[0]) / DEG;
+        nd.phase.setAttribute("transform", "rotate(" + ang.toFixed(1) + ")");
+      }
+
+      if (showLines) {
+        nd.line.setAttribute("x2", p[0].toFixed(1));
+        nd.line.setAttribute("y2", p[1].toFixed(1));
+        nd.line.setAttribute("opacity", 1);
+      } else {
+        nd.line.setAttribute("opacity", 0);
+      }
+    });
+
+    if (now - lastTrailAt > 50) { lastTrailAt = now; drawTrails(); }
+
+    if (Math.abs(Date.now() - lastTableMs) > 120) {
+      lastTableMs = Date.now();
+      updateTable(sample, sunLon);
+    }
+  }
+
+  function updateTable(sample, sunLon) {
+    TABLE_ORDER.forEach(function (code) {
+      var s = sample[code];
+      var lon = norm360(s.lon);
+      var r = rows[code];
+      var signIdx = Math.floor(lon / 30);
+      r.rasi.textContent = I18N.term("sign", SIGNS[signIdx]) + " " + fmtDMS(lon % 30);
+
+      if (nakNames) {
+        var nakIdx = Math.floor(lon / NAK_SPAN);
+        var pada = Math.floor((lon % NAK_SPAN) / (NAK_SPAN / 4)) + 1;
+        r.nak.textContent = I18N.term("nakshatra", nakNames[nakIdx]) + " · " +
+                            I18N.t("sky.pada", { n: pada });
+      }
+
+      var vakri = (code === "Rahu" || code === "Ketu") ? true : s.spd < 0;
+      r.gati.textContent = I18N.t("sky.gati_unit", { deg: s.spd.toFixed(3) });
+
+      var asta = isAsta(code, lon, sunLon, vakri);
+      var html = '<span class="badge ' + (vakri ? "vakri" : "margi") + '" title="' +
+                 (vakri ? I18N.t("sky.vakri_full") : I18N.t("sky.margi_full")) + '">' +
+                 (vakri ? I18N.t("sky.vakri") : I18N.t("sky.margi")) + "</span>";
+      if (asta) {
+        html += '<span class="badge asta" title="' + I18N.t("sky.asta_full") + '">' +
+                I18N.t("sky.asta") + "</span>";
+      }
+      r.state.innerHTML = html;
+    });
+  }
+
+  // ── the moment, in words ───────────────────────────────────────────────
+  var momentEl = document.getElementById("skyMoment");
+  var stateEl = document.getElementById("skyState");
+  var chipEl = document.getElementById("skyChip");
+  var whenInput = document.getElementById("skyWhen");
+
+  function localeTag() { return I18N.lang === "ta" ? "ta-IN" : "en-GB"; }
+
+  function showMoment() {
+    var d = new Date(simMs);
+    momentEl.textContent = d.toLocaleString(localeTag(), {
+      year: "numeric", month: "short", day: "2-digit",
+      hour: "2-digit", minute: "2-digit"
+    });
+    if (fetchFailed) {
+      chipEl.classList.add("err");
+      stateEl.textContent = I18N.t(fetchFailed);
+    } else {
+      chipEl.classList.remove("err");
+      stateEl.textContent = !buf ? I18N.t("sky.loading")
+        : (running ? I18N.t("sky.running") : I18N.t("sky.held"));
+    }
+    if (document.activeElement !== whenInput) whenInput.value = localInputValue(simMs);
+  }
+
+  function localInputValue(ms) {
+    var d = new Date(ms);
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+           "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  function frameNote() {
+    var zone = "UTC";
+    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (err) {}
+    document.getElementById("skyFrameNote").textContent =
+      I18N.t("sky.legend_frame", { zone: zone });
+  }
+
+  // ── transport ──────────────────────────────────────────────────────────
+  var playBtn = document.getElementById("skyPlay");
+  var fwdBtn = document.getElementById("skyFwd");
+  var revBtn = document.getElementById("skyRev");
+
+  function syncTransport() {
+    playBtn.innerHTML = running ? "&#10073;&#10073;" : "&#9654;";
+    playBtn.setAttribute("title", I18N.t(running ? "sky.pause" : "sky.play"));
+    playBtn.setAttribute("aria-label", playBtn.getAttribute("title"));
+    playBtn.classList.toggle("on", running);
+    fwdBtn.classList.toggle("on", running && dir > 0);
+    revBtn.classList.toggle("on", running && dir < 0);
+  }
+
+  function jumpTo(ms) {
+    simMs = ms;
+    fetchFailed = null;
+    buf = null;              // the window is almost certainly elsewhere now
+    ensureWindow();
+    showMoment();
+  }
+
+  function stepBy(sign) {
+    var unit = STEPS[parseInt(stepSel.value, 10)].unit;
+    var d = new Date(simMs);
+    if (unit === "hour") d.setHours(d.getHours() + sign);
+    else if (unit === "day") d.setDate(d.getDate() + sign);
+    else if (unit === "week") d.setDate(d.getDate() + 7 * sign);
+    else if (unit === "month") d.setMonth(d.getMonth() + sign);
+    else d.setFullYear(d.getFullYear() + sign);
+    jumpTo(d.getTime());
+  }
+
+  playBtn.addEventListener("click", function () {
+    running = !running;
+    lastTick = 0;
+    syncTransport();
+    showMoment();
+  });
+  fwdBtn.addEventListener("click", function () {
+    dir = 1; running = true; lastTick = 0; syncTransport(); showMoment();
+  });
+  revBtn.addEventListener("click", function () {
+    dir = -1; running = true; lastTick = 0; syncTransport(); showMoment();
+  });
+  document.getElementById("skyJumpFwd").addEventListener("click", function () { stepBy(1); });
+  document.getElementById("skyJumpBack").addEventListener("click", function () { stepBy(-1); });
+  document.getElementById("skyNow").addEventListener("click", function () { jumpTo(Date.now()); });
+  whenInput.addEventListener("change", function () {
+    var v = whenInput.value;
+    if (!v) return;
+    var ms = new Date(v).getTime();
+    if (!isNaN(ms)) jumpTo(ms);
+  });
+  paceSel.addEventListener("change", function () {
+    // A new pace wants differently spaced windows, both of them.
+    ensureWindow();
+  });
+
+  function bindToggle(id, set) {
+    var box = document.getElementById(id);
+    box.addEventListener("change", function () { set(box.checked); });
+    set(box.checked);
+  }
+  bindToggle("tgPaths", function (on) { showPaths = on; });
+  bindToggle("tgLines", function (on) { showLines = on; });
+  bindToggle("tgAsta", function (on) { showAsta = on; });
+  bindToggle("tgNak", function (on) {
+    document.getElementById("sky-nak").setAttribute("opacity", on ? 1 : 0);
+  });
+
+  // ── the loop ───────────────────────────────────────────────────────────
+  function frame(ts) {
+    if (!lastTick) lastTick = ts;
+    var elapsed = Math.min(ts - lastTick, 200);   // a backgrounded tab must not leap
+    lastTick = ts;
+
+    if (running && buf) simMs += dir * elapsed * pace() * DAY_MS / 1000;
+
+    ensureWindow();
+
+    if (buf) {
+      // Held to the window while a replacement is in flight, so the wheel
+      // waits at its edge rather than running off it.
+      shownMs = Math.min(Math.max(simMs, buf.startMs), buf.startMs + buf.spanMs);
+      render(sampleAll(shownMs));
+    }
+    // The grahas move every frame; the words about them do not need to.
+    if (ts - lastWordsAt > 110) { lastWordsAt = ts; showMoment(); }
+    requestAnimationFrame(frame);
+  }
+
+  I18N.onChange(function () {
+    syncTransport();
+    frameNote();
+    lastTableMs = 0;
+    showMoment();
+  });
+
+  I18N.apply(document);
+  frameNote();
+  syncTransport();
+  showMoment();
+  ensureWindow();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

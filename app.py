@@ -204,10 +204,11 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v15";
+const CACHE_NAME = "vedic-chart-v16";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
+  "/sky",
   "/i18n.js",
   "/manifest.json",
   "/icon-192.png",
@@ -765,10 +766,25 @@ _DASHA_CLOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "da
 with open(_DASHA_CLOCK_PATH, "r", encoding="utf-8") as _f:
     DASHA_CLOCK_HTML = _f.read()
 
+# The sky simulation - the nine grahas running geocentrically around a
+# sidereal rasi wheel, at their own speeds, with vakri (retrograde) and asta
+# (combustion) visible as they happen. Same escape hatch once more: its own
+# file, served verbatim at /sky, asking /sky-positions for its ephemeris.
+# Unlike every other page here it needs no birth details at all - graha
+# longitudes are geocentric, so they are the same from anywhere on earth.
+_SKY_SIM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sky_simulation.html")
+with open(_SKY_SIM_PATH, "r", encoding="utf-8") as _f:
+    SKY_SIM_HTML = _f.read()
+
 
 @app.route("/play-with-chart")
 def play_with_chart():
     return Response(PLAYGROUND_HTML, mimetype="text/html")
+
+
+@app.route("/sky")
+def sky_page():
+    return Response(SKY_SIM_HTML, mimetype="text/html")
 
 
 @app.route("/icon-192.png")
@@ -2901,6 +2917,7 @@ PAGE_TEMPLATE = """
   {{ theme_switch | safe }}
   {{ lang_switch | safe }}
   <a class="porutham-btn" href="/porutham">&#128142; <span data-i18n="nav.porutham">10 Porutham</span></a>
+  <a class="porutham-btn" href="/sky">&#129680; <span data-i18n="sky.open">Sky</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
@@ -5813,6 +5830,91 @@ def transit_positions():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": "gochar.err_generic", "detail": str(e)}), 400
+
+
+# ---------------------------------------------------------------------------
+# Sky simulation ephemeris
+# ---------------------------------------------------------------------------
+# /sky animates the grahas continuously, which no table of per-day positions
+# can feed on its own. Kerykeion hands back both the sidereal longitude and
+# the daily motion of each graha, so a sampled instant carries a position AND
+# a tangent - enough for the page to join two samples with a cubic and get
+# motion that is smooth, and that turns around at the true vakri station
+# rather than at whichever sample happened to be nearest it.
+#
+# Nothing here depends on where the observer stands: graha longitudes are
+# geocentric, identical read from Ujjain or from Greenwich (only the Lagna
+# moves with the place, and this page has no Lagna). The subject is built at
+# 0N 0E / UTC, and the page converts to the reader's own clock.
+_SKY_MAX_FRAMES = 400          # ~0.25 s of ephemeris per request
+_SKY_MIN_YEAR, _SKY_MAX_YEAR = 1800, 2399
+
+_SKY_PLANET_ATTRS = {
+    "Sun": "sun", "Moon": "moon", "Mars": "mars", "Mercury": "mercury",
+    "Jupiter": "jupiter", "Venus": "venus", "Saturn": "saturn",
+}
+
+
+def _sky_frame(when):
+    """[sidereal longitude, degrees per day] for the nine grahas at an instant."""
+    subject = build_vedic_subject(
+        "Sky", when.year, when.month, when.day, when.hour, when.minute,
+        0.0, 0.0, "UTC", "Greenwich",
+    )
+    frame = {}
+    for label, attr in _SKY_PLANET_ATTRS.items():
+        point = getattr(subject, attr)
+        frame[label] = [round(point["abs_pos"], 4), round(point["speed"], 5)]
+    # Ketu is Rahu's opposite point, so it shares Rahu's motion - both always
+    # vakri, which is also why neither is ever tested for asta.
+    rahu = get_rahu_data(subject)
+    frame["Rahu"] = [round(rahu["abs_pos"], 4), round(rahu["speed"], 5)]
+    frame["Ketu"] = [round((rahu["abs_pos"] + 180.0) % 360.0, 4), round(rahu["speed"], 5)]
+    return frame
+
+
+@app.route("/sky-positions", methods=["POST"])
+def sky_positions():
+    """A run of evenly spaced sky frames, starting at a UTC instant.
+
+    POST, not GET, so the service worker never sees it: the page asks for a
+    fresh window every few seconds of playback and not one of those URLs is
+    worth a cache entry.
+    """
+    from datetime import datetime as _dt, timedelta
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        step_minutes = int(payload.get("step_minutes", 60))
+        count = int(payload.get("count", 120))
+        start = _dt.strptime(str(payload.get("start", "")).strip(), "%Y-%m-%dT%H:%M")
+    except (TypeError, ValueError):
+        return jsonify({"error": "sky.err_request"}), 400
+
+    step_minutes = max(1, min(step_minutes, 1440))
+    count = max(1, min(count, _SKY_MAX_FRAMES))
+    last = start + timedelta(minutes=step_minutes * (count - 1))
+    if not (_SKY_MIN_YEAR <= start.year <= _SKY_MAX_YEAR
+            and _SKY_MIN_YEAR <= last.year <= _SKY_MAX_YEAR):
+        return jsonify({"error": "sky.err_range"}), 400
+
+    try:
+        frames = [_sky_frame(start + timedelta(minutes=step_minutes * i))
+                  for i in range(count)]
+    except Exception as e:
+        return jsonify({"error": "sky.err_generic", "detail": str(e)}), 400
+
+    return jsonify({
+        "start": start.strftime("%Y-%m-%dT%H:%M"),
+        "step_minutes": step_minutes,
+        "count": count,
+        "frames": frames,
+        # Shipped with the data rather than copied into the page: both tables
+        # already live in this file, and a second copy in JS would be one more
+        # place to forget.
+        "orbs": COMBUSTION_ORBS,
+        "nakshatras": NAKSHATRA_NAMES,
+    })
 
 
 def _pdf_content_disposition(name):
