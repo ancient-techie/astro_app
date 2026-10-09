@@ -344,6 +344,62 @@
   html[data-theme="light"] .badge.vakri { background: rgba(190, 60, 30, 0.14); color: #a8341a; }
   html[data-theme="light"] .badge.margi { background: rgba(20, 120, 70, 0.14); color: #13693d; }
   html[data-theme="light"] .badge.asta  { background: rgba(180, 110, 0, 0.16); color: #8a5500; }
+  .sky-light-intro { font-size: 11.5px; line-height: 1.6; color: var(--sky-dim); margin-bottom: 10px; }
+  .sky-strength {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sky-dim);
+    margin-bottom: 10px;
+  }
+  .sky-strength input[type="range"] { flex: 1; accent-color: #d4af37; min-width: 90px; }
+  .sky-strength output { min-width: 28px; text-align: right; color: var(--sky-gold); font-weight: 700; }
+  .sky-whose {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sky-dim);
+  }
+  .sky-chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1 1 100%; }
+  /* A chip is lit when that graha's light is in the mix, and drained when it
+     is not - the colour itself is the switch. */
+  .sky-chip-btn {
+    min-width: 30px;
+    height: 26px;
+    padding: 0 7px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: 'Lato', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, filter 0.15s;
+  }
+  .sky-chip-btn[aria-pressed="false"] {
+    opacity: 0.3;
+    filter: grayscale(0.85);
+    border-color: var(--sky-border);
+  }
+  .sky-mini {
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--sky-border);
+    background: transparent;
+    color: var(--sky-dim);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .sky-mini:hover { color: var(--sky-gold); border-color: var(--sky-gold); }
   .sky-legend { font-size: 11.5px; line-height: 1.65; color: var(--sky-dim); }
   .sky-legend p + p { margin-top: 7px; }
 
@@ -439,8 +495,26 @@
         <tbody id="skyRows"></tbody>
       </table>
     </div>
+    <div class="sky-card">
+      <h2 data-i18n="sky.light_title">Light in the rasis</h2>
+      <p class="sky-light-intro" data-i18n="sky.light_intro">Every graha throws its own colour into the rasi it stands in and the rasis it aspects.</p>
+      <label class="sky-strength">
+        <span data-i18n="sky.light_strength">Strength</span>
+        <input type="range" id="lightStrength" min="0" max="100" value="65">
+        <output id="lightStrengthOut">65</output>
+      </label>
+      <div class="sky-whose">
+        <span data-i18n="sky.light_whose">Whose light</span>
+        <button type="button" class="sky-mini" id="lightAll" data-i18n="sky.light_all">All</button>
+        <button type="button" class="sky-mini" id="lightNone" data-i18n="sky.light_clear">None</button>
+        <div class="sky-chips" id="lightChips"></div>
+      </div>
+    </div>
+
     <div class="sky-card sky-legend">
       <h2 data-i18n="sky.legend_title">Reading the wheel</h2>
+      <p data-i18n="sky.legend_light">The wash across a rasi is the light standing in it.</p>
+      <p data-i18n="sky.legend_kendra">The white glow marks the kendras counted from Chandra.</p>
       <p data-i18n="sky.legend_rings">The rings run outward in the classical order.</p>
       <p data-i18n="sky.legend_asta">The gold wedge is Surya's glare.</p>
       <p data-i18n="sky.legend_vakri">A path that doubles back on itself is a vakri loop.</p>
@@ -485,6 +559,9 @@
 </div>
 
 <div class="sky-toggles">
+  <label><input type="checkbox" id="tgLight" checked> <span data-i18n="sky.t_light">Light mix</span></label>
+  <label><input type="checkbox" id="tgKendra" checked> <span data-i18n="sky.t_kendra">Chandra’s kendras</span></label>
+  <label><input type="checkbox" id="tgRays"> <span data-i18n="sky.t_rays">Aspect rays</span></label>
   <label><input type="checkbox" id="tgPaths" checked> <span data-i18n="sky.t_paths">Paths</span></label>
   <label><input type="checkbox" id="tgLines"> <span data-i18n="sky.t_lines">Sight lines</span></label>
   <label><input type="checkbox" id="tgAsta" checked> <span data-i18n="sky.t_asta">Surya's glare</span></label>
@@ -525,16 +602,19 @@
   // Rings outward in the classical order - Chandra nearest the earth, the
   // nodes outermost. The ring is where a graha is drawn; its longitude is
   // what the ring says.
+  // `mix` is the light the graha throws, and these are the playground's own
+  // PLANET_BASE values - the two pages have to agree about what Guru's gold
+  // is, or the same chart would read differently on each.
   var GRAHAS = [
-    { code: "Moon",    ring: 118, fill: "#E8F0FF", ink: "#0a1030", r: 19 },
-    { code: "Mercury", ring: 158, fill: "#00CC33", ink: "#04210b", r: 17 },
-    { code: "Venus",   ring: 198, fill: "#FFB0C8", ink: "#3a0020", r: 17 },
-    { code: "Sun",     ring: 240, fill: "#FF9900", ink: "#1a0500", r: 21 },
-    { code: "Mars",    ring: 282, fill: "#FF2200", ink: "#ffffff", r: 17 },
-    { code: "Jupiter", ring: 322, fill: "#FFD700", ink: "#1a0800", r: 20 },
-    { code: "Saturn",  ring: 360, fill: "#1144CC", ink: "#c0d4ff", r: 19 },
-    { code: "Rahu",    ring: 396, fill: "#151515", ink: "#ddccbb", r: 15 },
-    { code: "Ketu",    ring: 396, fill: "#5C1500", ink: "#FF8866", r: 15 }
+    { code: "Moon",    ring: 118, fill: "#E8F0FF", ink: "#0a1030", r: 19, mix: [210, 225, 255] },
+    { code: "Mercury", ring: 158, fill: "#00CC33", ink: "#04210b", r: 17, mix: [0, 204, 51] },
+    { code: "Venus",   ring: 198, fill: "#FFB0C8", ink: "#3a0020", r: 17, mix: [255, 176, 200] },
+    { code: "Sun",     ring: 240, fill: "#FF9900", ink: "#1a0500", r: 21, mix: [255, 153, 0] },
+    { code: "Mars",    ring: 282, fill: "#FF2200", ink: "#ffffff", r: 17, mix: [255, 34, 0] },
+    { code: "Jupiter", ring: 322, fill: "#FFD700", ink: "#1a0800", r: 20, mix: [255, 215, 0] },
+    { code: "Saturn",  ring: 360, fill: "#1144CC", ink: "#c0d4ff", r: 19, mix: [17, 68, 204] },
+    { code: "Rahu",    ring: 396, fill: "#151515", ink: "#ddccbb", r: 15, mix: [18, 18, 18] },
+    { code: "Ketu",    ring: 396, fill: "#5C1500", ink: "#FF8866", r: 15, mix: [92, 21, 0] }
   ];
   // The order the table reads in, which is the order every other table in the
   // app reads in.
@@ -587,8 +667,8 @@
   // ── the standing parts of the wheel ────────────────────────────────────
   var svg = document.getElementById("skyWheel");
   var layer = {};
-  ["defs", "field", "sectors", "fx", "ticks", "labels", "rings", "asta",
-   "trails", "lines", "earth", "grahas"].forEach(function (name) {
+  ["defs", "field", "sectors", "fx", "kendra", "ticks", "labels", "rings", "asta",
+   "rays", "trails", "lines", "earth", "grahas"].forEach(function (name) {
     layer[name] = el(name === "defs" ? "defs" : "g", { id: "sky-" + name }, svg);
   });
 
@@ -630,19 +710,20 @@
     }
   })();
 
+  var tattva = [], tattvaBand = [];
   for (var s = 0; s < 12; s++) {
     var l0 = s * 30;
     // The sector is addressable by sign - the light mix that will be painted
     // per rasi hangs off these, and off the empty #sky-fx layer above them.
-    el("path", {
+    tattva.push(el("path", {
       d: wedge(l0, l0 + 30, R_FIELD_IN, R_SIGN_OUT),
       fill: TATTVA[s % 4], "fill-opacity": 0.07,
       "class": "sky-sector", "data-sign": SIGNS[s]
-    }, layer.sectors);
-    el("path", {
+    }, layer.sectors));
+    tattvaBand.push(el("path", {
       d: wedge(l0, l0 + 30, R_SIGN_IN, R_SIGN_OUT),
       fill: TATTVA[s % 4], "fill-opacity": 0.1, "pointer-events": "none"
-    }, layer.sectors);
+    }, layer.sectors));
 
     var spokeA = pt(l0, R_FIELD_IN), spokeB = pt(l0, R_SIGN_OUT);
     el("line", {
@@ -1011,6 +1092,201 @@
     return sepDeg(lon, sunLon) <= orb;
   }
 
+  // ── the light in the rasis ─────────────────────────────────────────────
+  // Lifted from chart_playground.html, rules and palette both: which rasis a
+  // graha throws its light into, how Chandra's colour follows its paksha, and
+  // the kendras counted from Chandra. The two pages have to agree - the same
+  // sky should not read differently on the kattam and on the wheel.
+  //
+  // One deliberate refinement. The playground counts Chandra's phase in whole
+  // signs from Surya because a kattam knows nothing finer; this page knows the
+  // elongation to the degree, so the same formula is evaluated continuously.
+  // Otherwise the drawn crescent and the light it throws would disagree.
+  var LIGHT_ALPHA = 0.62;              // the playground's per-contribution alpha
+  var MOON_KENDRA_OFFSETS = [1, 4, 7, 10];
+  var MOON_DARK = [10, 8, 32], MOON_LIT = [232, 240, 255];
+
+  function moonBrightness(elong) {
+    var dist = norm360(elong) / 30 + 1;     // the playground's 1..13 sign count
+    if (dist <= 1) return 0;
+    if (dist <= 7) return (dist - 1) / 6;
+    return (13 - dist) / 6;
+  }
+  function moonMix(bright) {
+    if (bright <= 0) return MOON_DARK.slice();
+    return [0, 1, 2].map(function (i) {
+      return Math.round(MOON_DARK[i] + (MOON_LIT[i] - MOON_DARK[i]) * bright);
+    });
+  }
+  function aspectOffsets(code, signIdx, sunIdx, moonBright) {
+    if (code === "Rahu" || code === "Ketu") return [1];
+    if (code === "Moon") {
+      if (moonBright <= 0) return [1];
+      var dist = ((signIdx - sunIdx + 12) % 12) + 1;
+      if (dist === 6 || dist === 7 || dist === 8) return [1, 6, 7, 8];
+      return [1, 7];
+    }
+    if (code === "Saturn") return [1, 3, 7, 10];
+    if (code === "Jupiter") return [1, 5, 7, 9];
+    if (code === "Mars") return [1, 4, 7, 8];
+    return [1, 7];                          // Surya, Sukra, Budha
+  }
+  function aspectedSign(signIdx, offset) { return (signIdx + offset - 1) % 12; }
+
+  // One gradient and one wedge a rasi, built once and recoloured in place.
+  var lightStops = [], lightWedge = [], kendraWedge = [];
+  (function buildLightLayer() {
+    var white = el("radialGradient", {
+      id: "gradKendra", gradientUnits: "userSpaceOnUse", cx: CX, cy: CY, r: R_SIGN_IN
+    }, layer.defs);
+    el("stop", { offset: "0.18", "stop-color": "#ffffff", "stop-opacity": "0.9" }, white);
+    el("stop", { offset: "0.62", "stop-color": "#eaf1ff", "stop-opacity": "0.45" }, white);
+    el("stop", { offset: "1", "stop-color": "#dfe9ff", "stop-opacity": "0" }, white);
+
+    for (var s = 0; s < 12; s++) {
+      var grad = el("radialGradient", {
+        id: "gradLight" + s, gradientUnits: "userSpaceOnUse", cx: CX, cy: CY, r: R_SIGN_IN
+      }, layer.defs);
+      lightStops.push([
+        el("stop", { offset: "0.2", "stop-color": "#000", "stop-opacity": "0" }, grad),
+        el("stop", { offset: "0.58", "stop-color": "#000", "stop-opacity": "0" }, grad),
+        el("stop", { offset: "0.9", "stop-color": "#000", "stop-opacity": "0" }, grad),
+        el("stop", { offset: "1", "stop-color": "#000", "stop-opacity": "0" }, grad)
+      ]);
+      lightWedge.push(el("path", {
+        d: wedge(s * 30, s * 30 + 30, R_FIELD_IN, R_SIGN_IN),
+        fill: "url(#gradLight" + s + ")", "pointer-events": "none"
+      }, layer.fx));
+      kendraWedge.push(el("path", {
+        d: wedge(s * 30, s * 30 + 30, R_FIELD_IN, R_SIGN_IN),
+        fill: "url(#gradKendra)", "fill-opacity": 0, "pointer-events": "none"
+      }, layer.kendra));
+    }
+  })();
+
+  // A ray from a graha to a rasi it aspects. The 7th is a straight line
+  // through the middle of the wheel, where the earth is, so every ray is bent
+  // around it instead.
+  function rayPath(x1, y1, x2, y2) {
+    var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    var dx = mx - CX, dy = my - CY, d = Math.sqrt(dx * dx + dy * dy);
+    var clear = R_EARTH + 52;
+    if (d < clear) {
+      if (d < 1) {
+        var px = -(y2 - y1), py = x2 - x1, pl = Math.sqrt(px * px + py * py) || 1;
+        mx = CX + px / pl * clear; my = CY + py / pl * clear;
+      } else {
+        mx = CX + dx / d * clear; my = CY + dy / d * clear;
+      }
+    }
+    return "M" + x1.toFixed(1) + "," + y1.toFixed(1) +
+           "Q" + mx.toFixed(1) + "," + my.toFixed(1) +
+           " " + x2.toFixed(1) + "," + y2.toFixed(1);
+  }
+
+  function drawRays(sample) {
+    layer.rays.textContent = "";
+    if (!showLight || !showRays) return;
+    var sunIdx = Math.floor(norm360(sample.Sun.lon) / 30);
+    var bright = moonBrightness(sample.Moon.lon - sample.Sun.lon);
+    GRAHAS.forEach(function (g) {
+      if (!lightOn[g.code]) return;
+      if (g.code === "Moon" && bright <= 0) return;
+      var si = Math.floor(norm360(sample[g.code].lon) / 30);
+      var mix = (g.code === "Moon") ? moonMix(bright) : g.mix;
+      var ink = "rgb(" + mix.join(",") + ")";
+      var from = pt(sample[g.code].lon, g.ring);
+      aspectOffsets(g.code, si, sunIdx, bright).forEach(function (off) {
+        if (off === 1) return;                 // its own rasi needs no ray
+        var to = pt(t30(si, off), 392);
+        el("path", {
+          d: rayPath(from[0], from[1], to[0], to[1]), fill: "none", stroke: ink,
+          "stroke-opacity": (0.5 * lightStrength).toFixed(2),
+          "stroke-width": 1.4, "stroke-linecap": "round"
+        }, layer.rays);
+        el("circle", {
+          cx: to[0].toFixed(1), cy: to[1].toFixed(1), r: 3.2, fill: ink,
+          "fill-opacity": (0.7 * lightStrength).toFixed(2)
+        }, layer.rays);
+      });
+    });
+  }
+  function t30(si, off) { return aspectedSign(si, off) * 30 + 15; }
+
+  var lightSig = null;
+
+  function renderLight(sample) {
+    var sunIdx = Math.floor(norm360(sample.Sun.lon) / 30);
+    var bright = moonBrightness(sample.Moon.lon - sample.Sun.lon);
+
+    // Only worth redoing when something about it actually changed: a graha
+    // crossing into the next rasi, Chandra's paksha moving on, or a control.
+    var sig = [showLight ? 1 : 0, showKendra ? 1 : 0, showRays ? 1 : 0,
+               lightStrength.toFixed(2), Math.round(bright * 60)].join(",");
+    GRAHAS.forEach(function (g) {
+      sig += "|" + Math.floor(norm360(sample[g.code].lon) / 30) + (lightOn[g.code] ? "+" : "-");
+    });
+    if (sig === lightSig) return;
+    lightSig = sig;
+
+    var acc = [];
+    for (var i = 0; i < 12; i++) acc.push([0, 0, 0, 0]);
+
+    if (showLight) {
+      GRAHAS.forEach(function (g) {
+        if (!lightOn[g.code]) return;
+        if (g.code === "Moon" && bright <= 0) return;   // a dark moon throws none
+        var si = Math.floor(norm360(sample[g.code].lon) / 30);
+        var mix = (g.code === "Moon") ? moonMix(bright) : g.mix;
+        aspectOffsets(g.code, si, sunIdx, bright).forEach(function (off) {
+          var t = aspectedSign(si, off);
+          acc[t][0] += mix[0]; acc[t][1] += mix[1]; acc[t][2] += mix[2]; acc[t][3] += 1;
+        });
+      });
+    }
+
+    for (var s = 0; s < 12; s++) {
+      var a = acc[s], n = a[3], st = lightStops[s];
+      if (!n) {
+        st.forEach(function (stop) { stop.setAttribute("stop-opacity", "0"); });
+        continue;
+      }
+      // Light adds. Capping on the brightest channel keeps the hue of the
+      // mixture instead of washing it towards white.
+      var r = a[0], gg = a[1], b = a[2], m = Math.max(r, gg, b);
+      if (m > 255) { var k = 255 / m; r *= k; gg *= k; b *= k; }
+      // The playground stacks one translucent layer per contribution; this is
+      // what that stack comes to, so two grahas on a rasi read as two.
+      var cover = 1 - Math.pow(1 - LIGHT_ALPHA, n);
+      var alpha = cover * lightStrength * 0.4;
+      var col = "rgb(" + Math.round(r) + "," + Math.round(gg) + "," + Math.round(b) + ")";
+      [0.42, 1, 0.8, 0].forEach(function (f, i) {
+        st[i].setAttribute("stop-color", col);
+        st[i].setAttribute("stop-opacity", (alpha * f).toFixed(3));
+      });
+    }
+
+    // The kendras from Chandra take its light, whatever is left of it.
+    var moonIdx = Math.floor(norm360(sample.Moon.lon) / 30);
+    var lit = {};
+    if (showLight && showKendra && lightOn.Moon && bright > 0) {
+      MOON_KENDRA_OFFSETS.forEach(function (off) {
+        lit[aspectedSign(moonIdx, off)] = bright * 0.75 * lightStrength;
+      });
+    }
+    for (var w = 0; w < 12; w++) {
+      kendraWedge[w].setAttribute("fill-opacity", (lit[w] || 0).toFixed(3));
+    }
+
+    // The tattva tints are decoration; they stand back when there is light to
+    // stand back for, and come forward again when every graha is switched off.
+    var anyLit = false;
+    for (var q = 0; q < 12; q++) if (acc[q][3]) anyLit = true;
+    var faded = showLight && anyLit;
+    tattva.forEach(function (el2) { el2.setAttribute("fill-opacity", faded ? 0.03 : 0.07); });
+    tattvaBand.forEach(function (el2) { el2.setAttribute("fill-opacity", faded ? 0.05 : 0.1); });
+  }
+
   // ── the paths ──────────────────────────────────────────────────────────
   // A path is not accumulated as the clock runs - it is read back out of the
   // windows every time it is drawn. So it is the same path whether you ran to
@@ -1094,6 +1370,10 @@
 
   // ── drawing one instant ────────────────────────────────────────────────
   var showPaths = true, showLines = false, showAsta = true;
+  var showLight = true, showKendra = true, showRays = false;
+  var lightStrength = 0.65;
+  var lightOn = {};
+  GRAHAS.forEach(function (g) { lightOn[g.code] = true; });
   var lastTableMs = 0;
   var shownMs = Date.now();
   var lastWordsAt = -1e9;
@@ -1153,6 +1433,8 @@
     });
 
     if (now - lastTrailAt > 50) { lastTrailAt = now; drawTrails(); }
+    renderLight(sample);
+    drawRays(sample);
 
     if (Math.abs(Date.now() - lastTableMs) > 120) {
       lastTableMs = Date.now();
@@ -1293,12 +1575,58 @@
     box.addEventListener("change", function () { set(box.checked); });
     set(box.checked);
   }
+  function relight() { lightSig = null; }        // force the next frame to redo it
+  bindToggle("tgLight", function (on) { showLight = on; relight(); });
+  bindToggle("tgKendra", function (on) { showKendra = on; relight(); });
+  bindToggle("tgRays", function (on) { showRays = on; relight(); });
   bindToggle("tgPaths", function (on) { showPaths = on; });
   bindToggle("tgLines", function (on) { showLines = on; });
   bindToggle("tgAsta", function (on) { showAsta = on; });
   bindToggle("tgNak", function (on) {
     document.getElementById("sky-nak").setAttribute("opacity", on ? 1 : 0);
   });
+
+  // ── whose light ────────────────────────────────────────────────────────
+  // One chip a graha, in its own colour: lit when its light is in the mix,
+  // drained when it is not, so the control looks like what it controls.
+  var chipBox = document.getElementById("lightChips");
+  GRAHAS.forEach(function (g) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sky-chip-btn";
+    btn.style.background = g.fill;
+    btn.style.color = g.ink;
+    btn.setAttribute("aria-pressed", "true");
+    btn.setAttribute("data-i18n-term", "planet_abbr:" + g.code);
+    btn.setAttribute("data-i18n-attr", "title:sky.light_whose");
+    btn.textContent = g.code.slice(0, 2);
+    btn.addEventListener("click", function () {
+      lightOn[g.code] = !lightOn[g.code];
+      btn.setAttribute("aria-pressed", lightOn[g.code] ? "true" : "false");
+      relight();
+    });
+    chipBox.appendChild(btn);
+    g.chip = btn;
+  });
+  function setAllLight(on) {
+    GRAHAS.forEach(function (g) {
+      lightOn[g.code] = on;
+      g.chip.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    relight();
+  }
+  document.getElementById("lightAll").addEventListener("click", function () { setAllLight(true); });
+  document.getElementById("lightNone").addEventListener("click", function () { setAllLight(false); });
+
+  var strengthEl = document.getElementById("lightStrength");
+  var strengthOut = document.getElementById("lightStrengthOut");
+  strengthEl.addEventListener("input", function () {
+    lightStrength = parseInt(strengthEl.value, 10) / 100;
+    strengthOut.textContent = strengthEl.value;
+    relight();
+  });
+  lightStrength = parseInt(strengthEl.value, 10) / 100;
+  strengthOut.textContent = strengthEl.value;
 
   // ── the loop ───────────────────────────────────────────────────────────
   function frame(ts) {
