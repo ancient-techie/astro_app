@@ -5540,10 +5540,8 @@ ADMIN_TEMPLATE = """
 """
 
 DEFAULT_FORM = {
-    "name": "Jane Doe",
+    "name": "",
     "city": "Mumbai",
-    "date": "1998-11-10",
-    "time": "03:45",
     "lat": "19.0760",
     "lng": "72.8777",
     "tz": "Asia/Kolkata",
@@ -5551,12 +5549,22 @@ DEFAULT_FORM = {
 }
 
 
+def default_form():
+    # Date and time are "now" at the default place, so they have to be read
+    # per request - a module-level value would freeze at server start.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo(DEFAULT_FORM["tz"]))
+    return dict(DEFAULT_FORM, date=now.strftime("%Y-%m-%d"),
+                time=now.strftime("%H:%M"))
+
+
 @app.route("/", methods=["GET"])
 def index():
     # ?record_id=<id> comes from the admin panel's "Go to chart" button -
     # prefill the form from a previously saved record instead of the demo
     # defaults. The chart still isn't generated until the user hits Generate.
-    form = DEFAULT_FORM
+    form = default_form()
     record_id = request.args.get("record_id", type=int)
     if record_id:
         record = storage.get_birth_record(record_id)
