@@ -5855,6 +5855,7 @@ def transit_positions():
 # moves with the place, and this page has no Lagna). The subject is built at
 # 0N 0E / UTC, and the page converts to the reader's own clock.
 _SKY_MAX_FRAMES = 400          # ~0.25 s of ephemeris per request
+_SKY_MAX_STEP_MINUTES = 28800   # 20 days
 _SKY_MIN_YEAR, _SKY_MAX_YEAR = 1800, 2399
 
 _SKY_PLANET_ATTRS = {
@@ -5899,7 +5900,10 @@ def sky_positions():
     except (TypeError, ValueError):
         return jsonify({"error": "sky.err_request"}), 400
 
-    step_minutes = max(1, min(step_minutes, 1440))
+    # Up to 20 days a frame: the page's history window reaches back twenty
+    # years at its fastest pace, and a lower cap would hand it a step it
+    # never asked for.
+    step_minutes = max(1, min(step_minutes, _SKY_MAX_STEP_MINUTES))
     count = max(1, min(count, _SKY_MAX_FRAMES))
     last = start + timedelta(minutes=step_minutes * (count - 1))
     if not (_SKY_MIN_YEAR <= start.year <= _SKY_MAX_YEAR

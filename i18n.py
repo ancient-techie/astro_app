@@ -1209,6 +1209,7 @@ _EN = {
     "sky.t_lines": "Sight lines",
     "sky.t_asta": "Surya\u2019s glare",
     "sky.t_nak": "Nakshatra ring",
+    "sky.t_fig": "Constellations",
 
     "sky.tbl_graha": "Graha",
     "sky.tbl_rasi": "Rasi",
@@ -1944,6 +1945,7 @@ _TA = {
     "sky.t_lines": "\u0baa\u0bbe\u0bb0\u0bcd\u0bb5\u0bc8\u0b95\u0bcd \u0b95\u0bcb\u0b9f\u0bc1",
     "sky.t_asta": "\u0b9a\u0bc2\u0bb0\u0bbf\u0baf \u0b92\u0bb3\u0bbf\u0bb5\u0b9f\u0bcd\u0b9f\u0bae\u0bcd",
     "sky.t_nak": "\u0ba8\u0b9f\u0bcd\u0b9a\u0ba4\u0bcd\u0ba4\u0bbf\u0bb0 \u0bb5\u0bb3\u0bc8\u0baf\u0bae\u0bcd",
+    "sky.t_fig": "\u0bb5\u0bbf\u0ba3\u0bcd\u0bae\u0bc0\u0ba9\u0bcd \u0b95\u0bc2\u0b9f\u0bcd\u0b9f\u0b99\u0bcd\u0b95\u0bb3\u0bcd",
 
     "sky.tbl_graha": "\u0b95\u0bbf\u0bb0\u0b95\u0bae\u0bcd",
     "sky.tbl_rasi": "\u0bb0\u0bbe\u0b9a\u0bbf",

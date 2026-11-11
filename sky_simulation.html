@@ -405,7 +405,7 @@
 
   /* ── the wheel itself ────────────────────────────────────────────────── */
   .sky-sector { cursor: default; transition: fill-opacity 0.15s; }
-  .sky-sector:hover { fill-opacity: 0.3; }
+  .sky-sector:hover { fill-opacity: 0.05; }
   .sign-name {
     font-family: 'Cinzel', serif;
     font-size: 17px;
@@ -566,6 +566,7 @@
   <label><input type="checkbox" id="tgLines"> <span data-i18n="sky.t_lines">Sight lines</span></label>
   <label><input type="checkbox" id="tgAsta" checked> <span data-i18n="sky.t_asta">Surya's glare</span></label>
   <label><input type="checkbox" id="tgNak" checked> <span data-i18n="sky.t_nak">Nakshatra ring</span></label>
+  <label><input type="checkbox" id="tgFig" checked> <span data-i18n="sky.t_fig">Constellations</span></label>
 </div>
 
 <script>
@@ -594,10 +595,6 @@
   var SIGN_GLYPH = ["♈", "♉", "♊", "♋", "♌", "♍",
                     "♎", "♏", "♐", "♑", "♒", "♓"]
                    .map(function (ch) { return ch + "︎"; });
-  // Tattva tints, one per sign - fire, earth, air, water repeating. They are
-  // laid on at a whisper so the grahas stay the brightest thing on the wheel.
-  // This is also the layer the sign-by-sign light mix will be painted into.
-  var TATTVA = ["#ff5a3c", "#4caf6a", "#6fa8ff", "#3f7fd8"];
 
   // Rings outward in the classical order - Chandra nearest the earth, the
   // nodes outermost. The ring is where a graha is drawn; its longitude is
@@ -667,7 +664,7 @@
   // ── the standing parts of the wheel ────────────────────────────────────
   var svg = document.getElementById("skyWheel");
   var layer = {};
-  ["defs", "field", "sectors", "fx", "kendra", "ticks", "labels", "rings", "asta",
+  ["defs", "field", "sectors", "figures", "fx", "kendra", "ticks", "labels", "rings", "asta",
    "rays", "trails", "lines", "earth", "grahas"].forEach(function (name) {
     layer[name] = el(name === "defs" ? "defs" : "g", { id: "sky-" + name }, svg);
   });
@@ -692,6 +689,25 @@
   })();
 
   el("circle", { cx: CX, cy: CY, r: R_SIGN_OUT, fill: "url(#gradField)" }, layer.field);
+  // The band the light falls on is dusk, not night. Light is laid on as
+  // colour over a base, the way the playground lays it over parchment, and on
+  // near-black a dark graha has nothing to darken - Rahu's light vanished
+  // outright, Sani's and Ketu's nearly so. A mid-tone lets the dark grahas
+  // read as surely as the bright ones; the faint indigo keeps it sky.
+  (function duskBand() {
+    var dusk = el("radialGradient", {
+      id: "gradDusk", gradientUnits: "userSpaceOnUse", cx: CX, cy: CY, r: R_SIGN_IN
+    }, layer.defs);
+    el("stop", { offset: "0.2", "stop-color": "#62667f" }, dusk);
+    el("stop", { offset: "1", "stop-color": "#4c5068" }, dusk);
+    el("path", {
+      d: "M" + (CX - R_SIGN_IN) + "," + CY + "a" + R_SIGN_IN + "," + R_SIGN_IN + " 0 1 0 " + (2 * R_SIGN_IN) + ",0" +
+         "a" + R_SIGN_IN + "," + R_SIGN_IN + " 0 1 0 " + (-2 * R_SIGN_IN) + ",0Z" +
+         "M" + (CX - R_FIELD_IN) + "," + CY + "a" + R_FIELD_IN + "," + R_FIELD_IN + " 0 1 1 " + (2 * R_FIELD_IN) + ",0" +
+         "a" + R_FIELD_IN + "," + R_FIELD_IN + " 0 1 1 " + (-2 * R_FIELD_IN) + ",0Z",
+      fill: "url(#gradDusk)", "fill-rule": "evenodd"
+    }, layer.field);
+  })();
   // A handful of fixed stars, so the field reads as sky rather than as paper.
   (function stars() {
     var seed = 7;
@@ -710,20 +726,16 @@
     }
   })();
 
-  var tattva = [], tattvaBand = [];
   for (var s = 0; s < 12; s++) {
     var l0 = s * 30;
-    // The sector is addressable by sign - the light mix that will be painted
-    // per rasi hangs off these, and off the empty #sky-fx layer above them.
-    tattva.push(el("path", {
+    // The sector is addressable by sign - the light mix is painted per rasi
+    // into #sky-fx above these. They carry no colour of their own: an earlier
+    // tattva tint sat under the light and muddied every mix it touched.
+    el("path", {
       d: wedge(l0, l0 + 30, R_FIELD_IN, R_SIGN_OUT),
-      fill: TATTVA[s % 4], "fill-opacity": 0.07,
+      fill: "#ffffff", "fill-opacity": 0,
       "class": "sky-sector", "data-sign": SIGNS[s]
-    }, layer.sectors));
-    tattvaBand.push(el("path", {
-      d: wedge(l0, l0 + 30, R_SIGN_IN, R_SIGN_OUT),
-      fill: TATTVA[s % 4], "fill-opacity": 0.1, "pointer-events": "none"
-    }, layer.sectors));
+    }, layer.sectors);
 
     var spokeA = pt(l0, R_FIELD_IN), spokeB = pt(l0, R_SIGN_OUT);
     el("line", {
@@ -749,6 +761,53 @@
   [R_SIGN_IN, R_SIGN_OUT].forEach(function (r) {
     el("circle", { cx: CX, cy: CY, r: r, fill: "none", stroke: "#d4af37", "stroke-opacity": 0.35 }, layer.ticks);
   });
+
+  // ── the star figures ───────────────────────────────────────────────────
+  // Each rasi's constellation drawn where its stars actually stand: J2000
+  // positions turned to ecliptic longitude and latitude, less the Lahiri
+  // ayanamsa (Chitra comes out at 179.98), so a figure spills over its
+  // sector's edge exactly where the real one does. Sidereal longitudes of
+  // fixed stars barely move - a few arc seconds a century - so a table is
+  // honest here in a way it would not be for a graha.
+  // [sidereal longitude, ecliptic latitude, magnitude] per star, and each
+  // line a run of indices into that sign's stars.
+  var STAR_FIGURES = [
+    /* Aries */ {"s":[[9.33,7.16,3.9],[10.11,8.49,2.6],[13.81,9.97,2.0],[24.35,10.45,3.6]],"l":[[0,1,2,3]]},
+    /* Taurus */ {"s":[[45.93,-5.47,0.9],[58.72,5.39,1.7],[60.93,-2.2,3.0],[41.95,-5.73,3.7],[43.01,-3.97,3.8],[44.61,-2.57,3.5],[44.1,-5.84,3.4],[36.78,-7.96,3.4],[27.31,-9.33,3.6],[36.14,4.05,2.9],[36.5,3.92,3.6],[35.55,4.19,3.7],[35.82,4.39,3.9],[35.84,3.96,4.1],[35.71,4.52,4.3]],"l":[[1,5,4,3],[3,6,0,2],[3,7,8]]},
+    /* Gemini */ {"s":[[86.38,10.1,1.6],[89.36,6.68,1.2],[75.25,-6.74,1.9],[76.08,2.07,3.0],[71.44,-0.82,2.9],[69.58,-0.89,3.3],[84.66,-0.18,3.5],[81.13,-2.04,3.9],[81.59,7.75,4.4],[77.35,-10.1,3.4],[84.92,-5.64,3.6]],"l":[[0,1],[0,8,3,4,5],[1,6,7,2],[6,10,9]]},
+    /* Cancer */ {"s":[[109.78,-5.08,4.3],[100.4,-10.29,3.5],[104.86,0.08,3.9],[103.68,3.19,4.7],[102.49,10.43,4.0]],"l":[[1,2,0],[2,3,4]]},
+    /* Leo */ {"s":[[125.97,0.46,1.4],[124.05,4.87,3.5],[125.76,8.81,2.0],[123.71,11.86,3.4],[117.57,12.35,3.9],[116.85,9.72,3.0],[137.46,14.33,2.6],[139.57,9.67,3.3],[147.76,12.27,2.1]],"l":[[0,1,2,3,4,5],[2,6,8,7,0]]},
+    /* Virgo */ {"s":[[179.98,-2.05,1.0],[166.28,2.79,2.8],[153.31,0.69,3.6],[160.98,1.37,3.9],[167.6,8.61,3.4],[166.08,16.2,2.9],[178.28,8.64,3.4],[183.89,13.06,4.3],[189.94,7.2,4.1],[196.27,9.67,3.9],[174.38,1.74,4.4]],"l":[[2,3,1,4,5],[1,10,0],[4,6,7],[0,6],[0,8,9]]},
+    /* Libra */ {"s":[[201.23,0.33,2.8],[205.51,8.5,2.6],[211.28,4.39,3.9],[206.83,-7.64,3.3],[214.75,-8.51,3.6],[215.49,-10.02,3.7]],"l":[[3,0,1,2,4,5],[0,2]]},
+    /* Scorpio */ {"s":[[225.91,-4.57,1.1],[219.33,1.01,2.6],[218.71,-1.99,2.3],[219.08,-5.48,2.9],[219.29,-8.6,3.9],[223.94,-4.04,2.9],[227.6,-6.12,2.8],[231.48,-11.74,2.3],[232.3,-15.42,3.0],[233.38,-19.64,3.6],[236.89,-20.18,3.3],[241.74,-19.65,1.9],[243.67,-16.71,3.0],[242.61,-15.64,2.4],[240.73,-13.79,1.6],[240.16,-14.01,2.7]],"l":[[1,2,3,4],[2,5,0,6,7,8,9,10,11,12,13,14,15]]},
+    /* Sagittarius */ {"s":[[251.22,-11.05,1.9],[250.72,-6.47,2.7],[252.46,-2.14,2.8],[258.53,-3.45,2.1],[259.78,-7.18,2.6],[256.32,-3.95,3.2],[260.98,-5.09,3.3],[247.4,-6.99,3.0],[249.77,-13.38,3.1]],"l":[[7,1,0,7],[1,2,5,1],[5,3,6,4,5],[4,0,8]]},
+    /* Capricorn */ {"s":[[280.0,6.93,3.6],[280.19,4.59,3.1],[283.3,-7.03,4.1],[284.1,-8.96,4.1],[293.08,-6.99,3.8],[299.69,-2.6,2.9],[297.93,-2.56,3.7],[293.83,-1.37,4.3],[289.99,-0.59,4.1]],"l":[[0,1,2,3,4,5,6,7,8,0]]},
+    /* Aquarius */ {"s":[[299.54,8.62,2.9],[309.5,10.66,3.0],[312.86,8.24,3.9],[315.05,8.85,3.7],[314.74,10.47,4.6],[316.55,8.15,4.0],[317.72,-0.39,3.7],[315.02,-8.19,3.3],[287.87,8.08,3.8],[309.41,2.71,4.2],[314.74,-5.66,4.0],[323.28,-1.05,4.2],[322.45,-4.0,4.2],[316.16,-14.49,3.7]],"l":[[8,0,1,2,3,5],[3,4],[1,9,6,11,12],[6,10,7,13]]},
+    /* Pisces */ {"s":[[2.96,5.38,3.6],[5.52,-9.06,3.8],[3.89,-1.62,4.3],[338.73,6.36,4.0],[333.79,7.15,4.1],[331.33,9.03,4.3],[327.6,7.26,3.7],[329.05,4.43,4.9],[332.73,3.42,4.5],[350.29,2.18,4.4],[353.67,1.09,4.3],[356.02,-0.21,5.2],[359.28,-3.06,4.8],[1.65,-4.69,4.5],[3.66,-7.92,4.6],[0.67,12.44,4.7],[2.6,15.5,4.7],[4.93,17.47,4.8],[4.46,20.74,4.5]],"l":[[6,5,4,8,7,6],[4,3,9,10,11,12,13,14,1],[1,2,0,15,16,17,18]]}
+  ];
+  // North is drawn inward. With longitude running clockwise, that is the
+  // only way round that keeps a figure its true handedness rather than its
+  // mirror image - Simha's sickle has to curl the way it does in the sky.
+  var FIG_R = 300, FIG_K = 5.2;     // 5.2px a degree is the wheel's own scale at r = 300
+  (function starFigures() {
+    STAR_FIGURES.forEach(function (fig) {
+      var xy = fig.s.map(function (st) { return pt(st[0], FIG_R - st[1] * FIG_K); });
+      fig.l.forEach(function (run) {
+        el("polyline", {
+          points: run.map(function (i) { return xy[i][0].toFixed(1) + "," + xy[i][1].toFixed(1); }).join(" "),
+          fill: "none", stroke: "#b4ccff", "stroke-opacity": 0.42, "stroke-width": 1.3,
+          "stroke-linejoin": "round"
+        }, layer.figures);
+      });
+      fig.s.forEach(function (st, i) {
+        el("circle", {
+          cx: xy[i][0].toFixed(1), cy: xy[i][1].toFixed(1),
+          r: Math.max(1.2, 3.8 - 0.6 * st[2]).toFixed(2),      // brighter star, bigger dot
+          fill: "#f4f7ff", "fill-opacity": 0.9
+        }, layer.figures);
+      });
+    });
+  })();
 
   // The 27 nakshatra divisions, as ticks only - named here they would crowd
   // out the rasis, and the table names the one each graha stands in.
@@ -913,6 +972,10 @@
   var HIST_FRAMES = 366;
   var hist = null;
   var histFetching = false;
+  // When a request last failed. A failure is not retried on the next frame -
+  // that would be sixty requests a second for as long as the cause lasts.
+  var RETRY_MS = 3000;
+  var windowFailedAt = -1e9, histFailedAt = -1e9;
 
   // How far back a path should be able to reach, and how finely, depends on
   // how fast the clock is running: a year at a day a frame is a minute of
@@ -1001,10 +1064,12 @@
     fetching = true;
     return askServer(startMs, stepMin, WINDOW_FRAMES).then(function (data) {
       buf = buildWindow(data);
+      buf.stepMin = stepMin;
       fetchFailed = null;
       fetching = false;
     }).catch(function (err) {
       fetching = false;
+      windowFailedAt = performance.now();
       fetchFailed = (err && err.message && err.message.indexOf("sky.") === 0)
         ? err.message : "sky.err_generic";
       running = false;
@@ -1021,9 +1086,14 @@
     return askServer(anchorMs - spec.span * 0.8 * DAY_MS, spec.stepMin, HIST_FRAMES)
       .then(function (data) {
         hist = buildWindow(data);
+        // Remember the step that was asked for, not the one that came back:
+        // ensureWindow compares against the ask, and a server that rounds it
+        // would otherwise have this window re-requested on every frame.
+        hist.stepMin = spec.stepMin;
         histFetching = false;
       }).catch(function () {
         histFetching = false;    // the running window alone still works
+        histFailedAt = performance.now();
       });
   }
 
@@ -1036,14 +1106,15 @@
   function ensureWindow() {
     // A new history is wanted when the playhead nears either end of the one
     // in hand, or when the pace calls for a different reach.
-    if (!histFetching) {
+    var t = performance.now();
+    if (!histFetching && t - histFailedAt > RETRY_MS) {
       var spec = histSpec();
       var frac = hist ? (simMs - hist.startMs) / hist.spanMs : -1;
       if (!hist || hist.stepMin !== spec.stepMin || frac < 0.05 || frac > 0.95) {
         requestHistory(simMs);
       }
     }
-    if (fetching) return;
+    if (fetching || t - windowFailedAt < RETRY_MS) return;
     var want = stepMinutesFor(pace());
     if (!buf || buf.stepMin !== want || !covers(simMs, 2)) {
       requestWindow(want, simMs, dir > 0);
@@ -1258,7 +1329,8 @@
       // The playground stacks one translucent layer per contribution; this is
       // what that stack comes to, so two grahas on a rasi read as two.
       var cover = 1 - Math.pow(1 - LIGHT_ALPHA, n);
-      var alpha = cover * lightStrength * 0.4;
+      // At full strength this is exactly the playground's stack.
+      var alpha = cover * lightStrength;
       var col = "rgb(" + Math.round(r) + "," + Math.round(gg) + "," + Math.round(b) + ")";
       [0.42, 1, 0.8, 0].forEach(function (f, i) {
         st[i].setAttribute("stop-color", col);
@@ -1277,14 +1349,6 @@
     for (var w = 0; w < 12; w++) {
       kendraWedge[w].setAttribute("fill-opacity", (lit[w] || 0).toFixed(3));
     }
-
-    // The tattva tints are decoration; they stand back when there is light to
-    // stand back for, and come forward again when every graha is switched off.
-    var anyLit = false;
-    for (var q = 0; q < 12; q++) if (acc[q][3]) anyLit = true;
-    var faded = showLight && anyLit;
-    tattva.forEach(function (el2) { el2.setAttribute("fill-opacity", faded ? 0.03 : 0.07); });
-    tattvaBand.forEach(function (el2) { el2.setAttribute("fill-opacity", faded ? 0.05 : 0.1); });
   }
 
   // ── the paths ──────────────────────────────────────────────────────────
@@ -1528,6 +1592,7 @@
   function jumpTo(ms) {
     simMs = ms;
     fetchFailed = null;
+    windowFailedAt = histFailedAt = -1e9;   // a new moment deserves a fresh try
     buf = null;              // the window is almost certainly elsewhere now
     ensureWindow();
     showMoment();
@@ -1582,6 +1647,7 @@
   bindToggle("tgPaths", function (on) { showPaths = on; });
   bindToggle("tgLines", function (on) { showLines = on; });
   bindToggle("tgAsta", function (on) { showAsta = on; });
+  bindToggle("tgFig", function (on) { layer.figures.setAttribute("display", on ? "inline" : "none"); });
   bindToggle("tgNak", function (on) {
     document.getElementById("sky-nak").setAttribute("opacity", on ? 1 : 0);
   });
