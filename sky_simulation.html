@@ -210,9 +210,18 @@
   .sky-chip.err { border-color: rgba(255, 90, 70, 0.6); color: #ffb3a6; }
 
   /* ── controls ────────────────────────────────────────────────────────── */
+  .sky-dock {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    max-width: 1320px;
+    margin: 0 auto 12px;
+    padding: 6px 0 8px;
+    background: var(--sky-bg);
+  }
   .sky-controls {
     max-width: 1320px;
-    margin: 14px auto 0;
+    margin: 0 auto;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -223,6 +232,23 @@
     background: var(--sky-panel);
   }
   .sky-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* Each mode's controls flow straight into the bar, as if unwrapped. */
+  .sky-ctl { display: contents; }
+  .sky-ctl[hidden] { display: none; }
+  .sky-modes {
+    display: inline-flex; gap: 2px; padding: 3px;
+    border: 1px solid var(--sky-border); border-radius: 12px; background: var(--sky-gold-soft);
+  }
+  .sky-mode {
+    height: 30px; padding: 0 12px; border: none; border-radius: 9px;
+    background: transparent; color: var(--sky-dim);
+    font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.03em;
+    cursor: pointer;
+  }
+  .sky-mode.on { background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%); color: #1c1710; }
+  .snap-note { font-size: 11px; color: var(--sky-dim); }
+  .snap-note.err { color: #ff8a75; }
+  .sky-lagna { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: var(--sky-gold); }
   .sky-group.grow { flex: 1 1 auto; justify-content: flex-end; }
   .sky-btn {
     font-family: 'Lato', sans-serif;
@@ -400,8 +426,50 @@
     cursor: pointer;
   }
   .sky-mini:hover { color: var(--sky-gold); border-color: var(--sky-gold); }
-  .sky-legend { font-size: 11.5px; line-height: 1.65; color: var(--sky-dim); }
-  .sky-legend p + p { margin-top: 7px; }
+  .sky-foot { margin-top: 10px; font-size: 11px; line-height: 1.6; color: var(--sky-dim); }
+
+  /* ── graha bala ──────────────────────────────────────────────────────── */
+  .bala-key { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10.5px; color: var(--sky-dim); margin-bottom: 8px; }
+  .bala-key span::before {
+    content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px; background: var(--bar);
+  }
+  .bala-key .good, .bala-bar.good { --bar: #3fcf7f; }
+  .bala-key .bad,  .bala-bar.bad  { --bar: #ff6450; }
+  .bala-key .str,  .bala-bar.str  { --bar: #5fb4ff; }
+  .bala-row {
+    display: grid;
+    grid-template-columns: minmax(92px, 34%) 1fr;
+    gap: 3px 10px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  }
+  .bala-row:last-child { border-bottom: none; }
+  .bala-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .bala-name { display: flex; align-items: center; font-size: 12.5px; font-weight: 700; }
+  .bala-note { font-size: 10.5px; color: var(--sky-dim); line-height: 1.35; }
+  .bala-bars { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .bala-bar { display: flex; align-items: center; gap: 6px; }
+  .bala-track {
+    flex: 1; height: 7px; border-radius: 4px; overflow: hidden;
+    background: rgba(128, 128, 128, 0.16);
+  }
+  /* The width eases, so a graha crossing into the next rasi visibly moves its
+     bars instead of snapping them. */
+  .bala-track i {
+    display: block; height: 100%; width: 0; border-radius: 4px;
+    background: var(--bar); transition: width 0.6s ease;
+  }
+  .bala-bar b {
+    min-width: 30px; text-align: right; font-size: 11px;
+    font-variant-numeric: tabular-nums; color: var(--sky-ink);
+  }
+  .bala-bar.none { visibility: hidden; }
+  .bala-src {
+    grid-column: 1 / -1; font-size: 10.5px; line-height: 1.45;
+    color: var(--sky-dim); overflow-wrap: anywhere;
+  }
 
   /* ── the wheel itself ────────────────────────────────────────────────── */
   .sky-sector { cursor: default; transition: fill-opacity 0.15s; }
@@ -430,6 +498,8 @@
   }
   html[data-lang="ta"] .g-glyph { font-size: 13px; }
   .g-retro { font-size: 15px; font-weight: 700; fill: #ff9c86; }
+  .bhava-num { font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700; fill: rgba(240, 216, 120, 0.75); }
+  .bhava-num.one { fill: #f0d878; font-size: 15px; }
   .earth-label {
     font-family: 'Cinzel', serif;
     font-size: 13px;
@@ -439,7 +509,13 @@
 
   @media (max-width: 760px) {
     .sky-side { order: 3; }
-    .sky-controls { position: sticky; bottom: 0; z-index: 5; background: var(--sky-bg); }
+    /* One line that scrolls on its own, rather than four wrapped lines of
+       toggles pinned over a phone-sized wheel. */
+    .sky-toggles { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    .sky-toggles label { flex: 0 0 auto; white-space: nowrap; }
+    .sky-controls { padding: 8px 10px; gap: 6px 8px; }
+    .sky-btn { height: 32px; min-width: 34px; padding: 0 9px; }
+    .sky-field select, .sky-field input { height: 32px; }
     table.sky-table { font-size: 11.5px; }
     /* Five columns of nowrap text - "Uttara Bhadrapada . pada 4" among them -
        set a line far wider than a phone, and the whole page scrolled
@@ -472,59 +548,16 @@
   <a class="sky-link" href="/" data-i18n="pg.back">Back to Generator</a>
 </header>
 
-<div class="sky-main">
-  <div class="sky-stage">
-    <svg id="skyWheel" viewBox="0 0 1040 1040" role="img"
-         data-i18n-attr="aria-label:sky.wheel_label"
-         aria-label="The twelve rasis with the nine grahas moving on them."></svg>
-    <div class="sky-chip" id="skyChip"><span id="skyMoment">&nbsp;</span><span class="state" id="skyState"></span></div>
+<!-- The controls ride at the top of the screen, so the wheel and the panels
+     below can be read and steered without scrolling back down to them. -->
+<div class="sky-dock">
+<div class="sky-controls">
+  <div class="sky-modes" role="group" data-i18n-attr="aria-label:sky.mode_label" aria-label="Mode">
+    <button type="button" class="sky-mode on" data-mode="sim" aria-pressed="true" data-i18n="sky.mode_sim">Simulation</button>
+    <button type="button" class="sky-mode" data-mode="snap" aria-pressed="false" data-i18n="sky.mode_snap">Snapshot</button>
   </div>
 
-  <aside class="sky-side">
-    <div class="sky-card">
-      <table class="sky-table">
-        <thead>
-          <tr>
-            <th data-i18n="sky.tbl_graha">Graha</th>
-            <th data-i18n="sky.tbl_rasi">Rasi</th>
-            <th data-i18n="sky.tbl_nakshatra">Nakshatra</th>
-            <th data-i18n="sky.tbl_gati">Gati</th>
-            <th data-i18n="sky.tbl_state">State</th>
-          </tr>
-        </thead>
-        <tbody id="skyRows"></tbody>
-      </table>
-    </div>
-    <div class="sky-card">
-      <h2 data-i18n="sky.light_title">Light in the rasis</h2>
-      <p class="sky-light-intro" data-i18n="sky.light_intro">Every graha throws its own colour into the rasi it stands in and the rasis it aspects.</p>
-      <label class="sky-strength">
-        <span data-i18n="sky.light_strength">Strength</span>
-        <input type="range" id="lightStrength" min="0" max="100" value="65">
-        <output id="lightStrengthOut">65</output>
-      </label>
-      <div class="sky-whose">
-        <span data-i18n="sky.light_whose">Whose light</span>
-        <button type="button" class="sky-mini" id="lightAll" data-i18n="sky.light_all">All</button>
-        <button type="button" class="sky-mini" id="lightNone" data-i18n="sky.light_clear">None</button>
-        <div class="sky-chips" id="lightChips"></div>
-      </div>
-    </div>
-
-    <div class="sky-card sky-legend">
-      <h2 data-i18n="sky.legend_title">Reading the wheel</h2>
-      <p data-i18n="sky.legend_light">The wash across a rasi is the light standing in it.</p>
-      <p data-i18n="sky.legend_kendra">The white glow marks the kendras counted from Chandra.</p>
-      <p data-i18n="sky.legend_rings">The rings run outward in the classical order.</p>
-      <p data-i18n="sky.legend_asta">The gold wedge is Surya's glare.</p>
-      <p data-i18n="sky.legend_vakri">A path that doubles back on itself is a vakri loop.</p>
-      <p data-i18n="sky.legend_phase">Chandra carries its paksha.</p>
-      <p id="skyFrameNote"></p>
-    </div>
-  </aside>
-</div>
-
-<div class="sky-controls">
+  <div class="sky-ctl" id="simControls">
   <div class="sky-group">
     <button type="button" class="sky-btn" id="skyJumpBack"
             data-i18n-attr="title:sky.jump_back;aria-label:sky.jump_back">&#8676;</button>
@@ -556,6 +589,31 @@
   <div class="sky-group grow">
     <button type="button" class="sky-btn wide" id="skyNow">&#8635; <span data-i18n="sky.now">Now</span></button>
   </div>
+  </div>
+
+  <!-- One moment at one place: the grahas are the same from anywhere, but
+       the place says which instant its clock means, and where the Lagna is. -->
+  <div class="sky-ctl" id="snapControls" hidden>
+    <label class="sky-field">
+      <span data-i18n="sky.snap_date">Date</span>
+      <input type="date" id="snapDate">
+    </label>
+    <label class="sky-field">
+      <span data-i18n="sky.snap_time">Time</span>
+      <input type="time" id="snapTime">
+    </label>
+    <label class="sky-field">
+      <span data-i18n="sky.snap_place">Place</span>
+      <input type="text" id="snapPlace" value="Chennai" autocomplete="off">
+    </label>
+    <button type="button" class="sky-btn wide" id="snapFind" data-i18n="sky.snap_find">Find</button>
+    <label class="sky-field">
+      <span data-i18n="sky.snap_tz">Zone</span>
+      <select id="snapTz"></select>
+    </label>
+    <button type="button" class="sky-btn wide" id="snapNow">&#8635; <span data-i18n="sky.now">Now</span></button>
+    <span class="snap-note" id="snapNote"></span>
+  </div>
 </div>
 
 <div class="sky-toggles">
@@ -567,7 +625,66 @@
   <label><input type="checkbox" id="tgAsta" checked> <span data-i18n="sky.t_asta">Surya's glare</span></label>
   <label><input type="checkbox" id="tgNak" checked> <span data-i18n="sky.t_nak">Nakshatra ring</span></label>
   <label><input type="checkbox" id="tgFig" checked> <span data-i18n="sky.t_fig">Constellations</span></label>
+  <label><input type="checkbox" id="tgBala" checked> <span data-i18n="sky.t_bala">Graha bala</span></label>
 </div>
+</div>
+
+<div class="sky-main">
+  <div class="sky-stage">
+    <svg id="skyWheel" viewBox="0 0 1040 1040" role="img"
+         data-i18n-attr="aria-label:sky.wheel_label"
+         aria-label="The twelve rasis with the nine grahas moving on them."></svg>
+    <div class="sky-chip" id="skyChip"><span id="skyMoment">&nbsp;</span><span class="state" id="skyState"></span></div>
+  </div>
+
+  <aside class="sky-side">
+    <div class="sky-card">
+      <table class="sky-table">
+        <thead>
+          <tr>
+            <th data-i18n="sky.tbl_graha">Graha</th>
+            <th data-i18n="sky.tbl_rasi">Rasi</th>
+            <th data-i18n="sky.tbl_nakshatra">Nakshatra</th>
+            <th data-i18n="sky.tbl_gati">Gati</th>
+            <th data-i18n="sky.tbl_state">State</th>
+          </tr>
+        </thead>
+        <tbody id="skyRows"></tbody>
+      </table>
+      <p class="sky-lagna" id="skyLagna" hidden></p>
+      <p class="sky-foot" id="skyFrameNote"></p>
+    </div>
+
+    <div class="sky-card" id="balaCard">
+      <h2 data-i18n="sky.bala_title">Graha bala</h2>
+      <p class="sky-light-intro" data-i18n="sky.bala_intro">Subha and papa from every graha standing with or aspecting this one; sthana bala from the rasi it holds.</p>
+      <div class="bala-key">
+        <span class="good" data-i18n="sky.bala_good">Subha</span>
+        <span class="bad" data-i18n="sky.bala_bad">Papa</span>
+        <span class="str" data-i18n="sky.bala_str">Sthana bala</span>
+      </div>
+      <div id="balaRows"></div>
+    </div>
+    <div class="sky-card">
+      <h2 data-i18n="sky.light_title">Light in the rasis</h2>
+      <p class="sky-light-intro" data-i18n="sky.light_intro">Every graha throws its own colour into the rasi it stands in and the rasis it aspects.</p>
+      <label class="sky-strength">
+        <span data-i18n="sky.light_strength">Strength</span>
+        <input type="range" id="lightStrength" min="0" max="100" value="65">
+        <output id="lightStrengthOut">65</output>
+      </label>
+      <div class="sky-whose">
+        <span data-i18n="sky.light_whose">Whose light</span>
+        <button type="button" class="sky-mini" id="lightAll" data-i18n="sky.light_all">All</button>
+        <button type="button" class="sky-mini" id="lightNone" data-i18n="sky.light_clear">None</button>
+        <div class="sky-chips" id="lightChips"></div>
+      </div>
+    </div>
+
+  </aside>
+</div>
+
+
 
 <script>
 (function () {
@@ -664,7 +781,7 @@
   // ── the standing parts of the wheel ────────────────────────────────────
   var svg = document.getElementById("skyWheel");
   var layer = {};
-  ["defs", "field", "sectors", "figures", "fx", "kendra", "ticks", "labels", "rings", "asta",
+  ["defs", "field", "sectors", "figures", "fx", "kendra", "ticks", "labels", "lagna", "rings", "asta",
    "rays", "trails", "lines", "earth", "grahas"].forEach(function (name) {
     layer[name] = el(name === "defs" ? "defs" : "g", { id: "sky-" + name }, svg);
   });
@@ -1037,7 +1154,7 @@
     });
 
     if (data.orbs) orbs = data.orbs;
-    if (data.nakshatras) nakNames = data.nakshatras;
+    if (data.nakshatras) { nakNames = data.nakshatras; if (mode === "snap") lagnaWords(); }
     return { stepMs: stepMs, startMs: startMs, spanMs: stepMs * (n - 1), n: n,
              stepMin: data.step_minutes, lon: lon, spd: spd };
   }
@@ -1353,6 +1470,321 @@
     }
   }
 
+  // ── graha bala ─────────────────────────────────────────────────────────
+  // Subha, papa and sthana bala for the nine, by the playground's own rules
+  // (chart_playground.html: computePlanetScores, getStanaBala,
+  // hasNeechaBhanga, moonKendra). The tables and functions below are lifted
+  // whole, in its short codes, so the two still diff cleanly - which makes
+  // the dignity tables live in a fourth place: a fix to one belongs in all.
+  //
+  // Like the playground this counts whole rasis, Chandra's paksha included.
+  // The light mix reads the paksha off the true elongation because a colour
+  // has to agree with the crescent drawn beside it; a score has to agree
+  // with the kattam for the same rasis, and the kattam knows only rasis.
+  var PG_CODE = { Sun: "Sun", Moon: "Mon", Mars: "Mar", Mercury: "Mer", Jupiter: "Jup",
+                  Venus: "Ven", Saturn: "Sat", Rahu: "Rahu", Ketu: "Ketu" };
+  var SKY_CODE = {};
+  Object.keys(PG_CODE).forEach(function (k) { SKY_CODE[PG_CODE[k]] = k; });
+
+  var EXALTATION={Sun:'Aries',Mon:'Taurus',Mar:'Capricorn',Jup:'Cancer',Sat:'Libra',Ven:'Pisces',Mer:'Virgo',Rahu:'Gemini',Ketu:'Sagittarius'};
+  var DEBILITATION={Sun:'Libra',Mon:'Scorpio',Mar:'Cancer',Jup:'Capricorn',Sat:'Aries',Ven:'Virgo',Mer:'Pisces',Rahu:'Sagittarius',Ketu:'Gemini'};
+  var MOOLA_TRIKONA={Sun:'Leo',Mon:'Taurus',Mar:'Aries',Jup:'Sagittarius',Sat:'Aquarius',Ven:'Libra',Mer:'Virgo'};
+  var OWN_SIGN={Sun:['Leo'],Mon:['Cancer'],Mar:['Aries','Scorpio'],Jup:['Sagittarius','Pisces'],Sat:['Capricorn','Aquarius'],Ven:['Taurus','Libra'],Mer:['Gemini','Virgo'],Rahu:['Gemini'],Ketu:['Sagittarius']};
+  var FRIEND_SIGNS={
+    Sun:   {friends:['Moon','Mars','Jupiter'],   neutrals:['Mercury'],          enemies:['Venus','Saturn']},
+    Mon:   {friends:['Sun','Mercury'],            neutrals:['Mars','Jupiter','Venus','Saturn'], enemies:[]},
+    Mar:   {friends:['Sun','Moon','Jupiter'],     neutrals:['Venus','Saturn'],   enemies:['Mercury']},
+    Jup:   {friends:['Sun','Moon','Mars'],        neutrals:['Saturn'],           enemies:['Mercury','Venus']},
+    Sat:   {friends:['Mercury','Venus'],          neutrals:['Jupiter'],          enemies:['Sun','Moon','Mars']},
+    Ven:   {friends:['Mercury','Saturn'],         neutrals:['Mars','Jupiter'],   enemies:['Sun','Moon']},
+    Mer:   {friends:['Sun','Venus'],              neutrals:['Mars','Jupiter','Saturn'], enemies:['Moon']},
+  };
+  var SIGN_LORD={Aries:'Mar',Taurus:'Ven',Gemini:'Mer',Cancer:'Mon',Leo:'Sun',Virgo:'Mer',Libra:'Ven',Scorpio:'Mar',Sagittarius:'Jup',Capricorn:'Sat',Aquarius:'Sat',Pisces:'Jup'};
+
+  function getStanaBala(planet, sign) {
+    if(planet==='Asc') return {score:0,label:'—'};
+    if(sign===EXALTATION[planet]) return {score:100,label:'Exaltation'};
+    if(sign===DEBILITATION[planet]) return {score:0,label:'Debilitation'};
+    if(MOOLA_TRIKONA[planet]===sign) return {score:80,label:'Moola Trikona'};
+    var ownSigns=OWN_SIGN[planet]||[];
+    if(ownSigns.includes(sign)) return {score:60,label:'Own Sign'};
+    if(planet==='Rahu'||planet==='Ketu') return {score:30,label:'Neutral'};
+    var lord=SIGN_LORD[sign];
+    var rel=FRIEND_SIGNS[planet];
+    if(!rel) return {score:30,label:'Neutral'};
+    if((planet==='Jup'&&lord==='Sat')||(planet==='Sat'&&lord==='Jup')) return {score:30,label:'Neutral (Jup/Sat)'};
+    var planetName={Sun:'Sun',Mon:'Moon',Mar:'Mars',Jup:'Jupiter',Sat:'Saturn',Ven:'Venus',Mer:'Mercury'}[lord]||lord;
+    if(rel.friends.some(function(f){return f===planetName||f===lord;})) return {score:40,label:"Friend's House"};
+    if(rel.enemies.some(function(f){return f===planetName||f===lord;})) return {score:20,label:'Enemy House'};
+    return {score:30,label:'Neutral'};
+  }
+
+  function hasNeechaBhanga(planet, signIdx, signToPlanets) {
+    var debSign=DEBILITATION[planet]; if(!debSign) return false;
+    var debSignIdx=SIGNS.indexOf(debSign);
+    if(signIdx!==debSignIdx) return false;
+    var debLord=SIGN_LORD[debSign];
+    for(var si=0;si<12;si++){
+      if(signToPlanets[si]&&signToPlanets[si].includes(debLord)){
+        var offset=((si-signIdx+12)%12)+1;
+        if([1,4,7,10].includes(offset)) return true;
+      }
+    }
+    var exaltSign=EXALTATION[planet]; if(!exaltSign) return false;
+    var exaltLord=SIGN_LORD[exaltSign];
+    if(signToPlanets[signIdx]&&signToPlanets[signIdx].includes(exaltLord)) return true;
+    return false;
+  }
+
+  var PLANET_GOOD_MULT={Jup:1.0, Ven:0.8, Mer:0.7};
+  var PLANET_BAD_MULT={Sat:0.70, Mar:0.60, Rahu:0.80, Ketu:0.30};
+
+  // The playground's Chandra, counted in whole rasis from Surya.
+  function pgMoonBrightness(moonSIdx,sunSIdx){
+    var dist=((moonSIdx-sunSIdx+12)%12)+1;
+    if(dist===1) return 0.0;
+    if(dist===7) return 1.0;
+    if(dist>=2&&dist<=6) return (dist-1)/6;
+    return (13-dist)/6;
+  }
+  function moonBadFactor(moonSIdx,sunSIdx){
+    var dist=((moonSIdx-sunSIdx+12)%12)+1;
+    if(dist===1) return 1.0;
+    if(dist===2||dist===12) return 0.35;
+    return 0;
+  }
+  function moonPlanetGoodMult(moonSIdx,sunSIdx){
+    var dist=((moonSIdx-sunSIdx+12)%12)+1;
+    if(dist===7) return 1.8;
+    if(dist===6||dist===8) return 1.2;
+    return pgMoonBrightness(moonSIdx,sunSIdx);
+  }
+  function getAspectOffsets(planet,signIdx,sunSIdx){
+    if(['Rahu','Ketu','Asc'].includes(planet)) return [1];
+    if(planet==='Mon'){
+      var bright=pgMoonBrightness(signIdx,sunSIdx);
+      if(bright<=0) return [1];
+      var dist=((signIdx-sunSIdx+12)%12)+1;if([6,7,8].includes(dist)) return [1,6,7,8];
+      return [1,7];
+    }
+    if(planet==='Sat') return [1,3,7,10];
+    if(planet==='Jup') return [1,5,7,9];
+    if(planet==='Mar') return [1,4,7,8];
+    return [1,7];
+  }
+  function aspectSign(sIdx,offset){return(sIdx+offset-1)%12;}
+  var MOON_KENDRA_BENEFICIARIES=['Mer','Ven','Sun','Jup'];
+  var MOON_KENDRA_POINTS=30;
+
+  // computePlanetScores, with the chart reduced to {code: rasi index} - all
+  // nine are always placed in the sky. A source is kept as {g, pts, kind}
+  // rather than the playground's English string, so it can be named in
+  // either language.
+  function computePlanetScores(at){
+    var sunSIdx=at.Sun, moonSIdx=at.Mon;
+    var bright=pgMoonBrightness(moonSIdx,sunSIdx);
+    var badFactor=moonBadFactor(moonSIdx,sunSIdx);
+    var signTP={};for(var i=0;i<12;i++) signTP[i]=[];
+    var placed=Object.keys(at).map(function(p){signTP[at[p]].push(p);return {planet:p,sIdx:at[p]};});
+    var kendraPts=Math.round(MOON_KENDRA_POINTS*bright);
+    var kendraSigns=[1,4,7,10].map(function(n){return aspectSign(moonSIdx,n);});
+
+    var pScores={};
+    placed.forEach(function(e){pScores[e.planet]={goodness:0,badness:0,goodSrc:[],badSrc:[]};});
+    function reachOf(p,si){return getAspectOffsets(p,si,sunSIdx).map(function(off){return aspectSign(si,off);});}
+    function hasOtherMaleficAspect(targetSIdx,excludePlanets){
+      var malefics=['Sat','Mar','Rahu','Mon'];
+      return placed.some(function(e){
+        if(excludePlanets.includes(e.planet)||!malefics.includes(e.planet)) return false;
+        if(e.planet==='Mon'&&badFactor<=0) return false;
+        return reachOf(e.planet,e.sIdx).includes(targetSIdx);
+      });
+    }
+
+    placed.forEach(function(t){
+      var target=t.planet, targetSIdx=t.sIdx, sc=pScores[target];
+      placed.forEach(function(s){
+        var src=s.planet, srcSIdx=s.sIdx;
+        if(src===target&&srcSIdx===targetSIdx) return;
+        if(!reachOf(src,srcSIdx).includes(targetSIdx)) return;
+        var isConj=(srcSIdx===targetSIdx);
+        if(src==='Mar'&&target==='Jup'&&!isConj) return;
+        if(src==='Mar'&&target==='Mon'&&bright>0.5) return;
+
+        if(['Jup','Ven','Mer'].includes(src)){
+          var pts=100*PLANET_GOOD_MULT[src];
+          sc.goodness+=pts; sc.goodSrc.push({g:src,pts:pts});
+        }
+        if(src==='Mon'&&bright>0){
+          var mp=100*moonPlanetGoodMult(moonSIdx,sunSIdx);
+          sc.goodness+=mp; sc.goodSrc.push({g:'Mon',pts:mp});
+        }
+        if(src==='Sat'||src==='Mar'){
+          var bp=src==='Sat'?100:75, kind=null;
+          if(signTP[srcSIdx].includes('Ketu')&&!hasOtherMaleficAspect(srcSIdx,['Ketu',src])){
+            bp=Math.round(bp*0.4); kind='ketu';
+          }
+          sc.badness+=bp; sc.badSrc.push({g:src,pts:bp,kind:kind});
+        }
+        if(src==='Rahu'&&isConj){ sc.badness+=80*PLANET_BAD_MULT.Rahu; sc.badSrc.push({g:'Rahu',pts:80*PLANET_BAD_MULT.Rahu}); }
+        if(src==='Sun'&&isConj){ sc.badness+=50; sc.badSrc.push({g:'Sun',pts:50}); }
+        if(src==='Ketu'&&isConj){ sc.badness+=40*PLANET_BAD_MULT.Ketu; sc.badSrc.push({g:'Ketu',pts:40*PLANET_BAD_MULT.Ketu}); }
+        if(src==='Mon'&&badFactor>0&&isConj){ sc.badness+=100*badFactor; sc.badSrc.push({g:'Mon',pts:100*badFactor,kind:'dark'}); }
+      });
+      if(target==='Mon'&&bright>0){
+        var self=100*moonPlanetGoodMult(moonSIdx,sunSIdx);
+        sc.goodness+=self; sc.goodSrc.push({g:'Mon',pts:self,kind:'self'});
+      }
+      if(target==='Mon'&&badFactor>0){
+        sc.badness+=100*badFactor; sc.badSrc.push({g:'Mon',pts:100*badFactor,kind:'dark'});
+      }
+      if(kendraPts>0&&MOON_KENDRA_BENEFICIARIES.includes(target)&&kendraSigns.includes(targetSIdx)){
+        sc.goodness+=kendraPts; sc.goodSrc.unshift({g:'Mon',pts:kendraPts,kind:'kendra'});
+      }
+    });
+
+    // computeStanaBala, with neecha bhanga. Rahu and Ketu own nothing they
+    // can draw strength from, so they hold the sthana bala of the lord of
+    // the rasi they stand in, read where that lord itself stands.
+    function stanaOf(p){
+      var sign=SIGNS[at[p]], r=getStanaBala(p,sign), nb=false;
+      if(r.score===0&&hasNeechaBhanga(p,at[p],signTP)){ nb=true; r={score:35,label:'Debilitation (Neecha Bhanga)'}; }
+      return {score:r.score,label:r.label,nb:nb};
+    }
+    placed.forEach(function(e){
+      var p=e.planet;
+      if(p==='Rahu'||p==='Ketu'){
+        var lord=SIGN_LORD[SIGNS[at[p]]];
+        var ls=stanaOf(lord); ls.via=lord;
+        pScores[p].stana=ls;
+      } else {
+        pScores[p].stana=stanaOf(p);
+      }
+    });
+    return pScores;
+  }
+
+  // The bars run on fixed scales, not on the largest value in view, so a
+  // bar only moves when its own graha's lot changes.
+  var BALA_SCALE = { good: 300, bad: 300, str: 100 };
+  var showBala = true, balaSig = null, balaScores = null;
+  var balaRows = {};
+  (function buildBala() {
+    var host = document.getElementById("balaRows");
+    TABLE_ORDER.forEach(function (code) {
+      var g = BY_CODE[code];
+      var row = document.createElement("div");
+      row.className = "bala-row";
+      var head = document.createElement("div");
+      head.className = "bala-head";
+      var name = document.createElement("div");
+      name.className = "bala-name";
+      var chip = document.createElement("span");
+      chip.className = "g-chip";
+      chip.style.background = g.fill;
+      chip.style.color = g.ink;
+      chip.setAttribute("data-i18n-term", "planet_abbr:" + code);
+      chip.textContent = code.slice(0, 2);
+      var full = document.createElement("span");
+      full.setAttribute("data-i18n-term", "planet:" + code);
+      full.textContent = code;
+      name.appendChild(chip);
+      name.appendChild(full);
+      var note = document.createElement("div");
+      note.className = "bala-note";
+      head.appendChild(name);
+      head.appendChild(note);
+
+      var bars = document.createElement("div");
+      bars.className = "bala-bars";
+      var refs = { note: note };
+      ["good", "bad", "str"].forEach(function (kind) {
+        var bar = document.createElement("div");
+        bar.className = "bala-bar " + kind;
+        var track = document.createElement("span");
+        track.className = "bala-track";
+        var fill = document.createElement("i");
+        track.appendChild(fill);
+        var val = document.createElement("b");
+        bar.appendChild(track);
+        bar.appendChild(val);
+        bars.appendChild(bar);
+        refs[kind] = { fill: fill, val: val };
+      });
+      var src = document.createElement("div");
+      src.className = "bala-src";
+      refs.src = src;
+
+      row.appendChild(head);
+      row.appendChild(bars);
+      row.appendChild(src);
+      host.appendChild(row);
+      balaRows[code] = refs;
+    });
+  })();
+
+  function pgName(pg) { return I18N.term("planet", SKY_CODE[pg]); }
+  function srcText(list, sign) {
+    return list.map(function (s) {
+      var who = pgName(s.g);
+      if (s.kind === "kendra") who = I18N.t("sky.src_kendra", { g: who });
+      else if (s.kind === "self") who = I18N.t("sky.src_self", { g: who });
+      else if (s.kind === "dark") who = I18N.t("sky.src_dark", { g: who });
+      else if (s.kind === "ketu") who = I18N.t("sky.src_ketu", { g: who });
+      return who + " " + sign + Math.round(s.pts);
+    }).join(" · ");
+  }
+  function moonPhaseText(elong) {
+    var e = norm360(elong), lit = Math.round((1 - Math.cos(e * DEG)) / 2 * 100);
+    if (lit >= 99) return I18N.t("pg.full_moon");
+    if (lit <= 1) return I18N.t("pg.new_moon_short");
+    return I18N.t(e < 180 ? "pg.waxing" : "pg.waning", { pct: lit });
+  }
+
+  function setBar(ref, value, scale) {
+    ref.fill.style.width = Math.min(100, value / scale * 100).toFixed(1) + "%";
+    ref.val.textContent = Math.round(value);
+  }
+
+  function renderBala(sample) {
+    if (!showBala) return;
+    var at = {};
+    GRAHAS.forEach(function (g) {
+      at[PG_CODE[g.code]] = Math.floor(norm360(sample[g.code].lon) / 30);
+    });
+    // Everything the rules read is a rasi, so nothing changes until a graha
+    // crosses into the next one.
+    var sig = Object.keys(at).map(function (k) { return at[k]; }).join(",");
+    if (sig !== balaSig) {
+      balaSig = sig;
+      balaScores = computePlanetScores(at);
+      TABLE_ORDER.forEach(function (code) {
+        var sc = balaScores[PG_CODE[code]], r = balaRows[code];
+        setBar(r.good, sc.goodness, BALA_SCALE.good);
+        setBar(r.bad, sc.badness, BALA_SCALE.bad);
+        setBar(r.str, sc.stana.score, BALA_SCALE.str);
+      });
+      balaWords(sample);
+    }
+  }
+
+  // The words: the dignity, whose rasi Rahu and Ketu borrow from, who gave
+  // what - and Chandra's paksha, which moves between the rasis.
+  function balaWords(sample) {
+    if (!balaScores) return;
+    TABLE_ORDER.forEach(function (code) {
+      var sc = balaScores[PG_CODE[code]], r = balaRows[code];
+      var dignity = I18N.term("stana_label", sc.stana.label);
+      if (sc.stana.via) dignity = I18N.t("sky.bala_via", { g: pgName(sc.stana.via) }) + ": " + dignity;
+      if (code === "Moon") dignity = moonPhaseText(sample.Moon.lon - sample.Sun.lon) + " · " + dignity;
+      r.note.textContent = dignity;
+      var parts = [];
+      if (sc.goodSrc.length) parts.push(srcText(sc.goodSrc, "+"));
+      if (sc.badSrc.length) parts.push(srcText(sc.badSrc, "−"));
+      r.src.textContent = parts.join(" · ");
+    });
+  }
+
   // ── the paths ──────────────────────────────────────────────────────────
   // A path is not accumulated as the clock runs - it is read back out of the
   // windows every time it is drawn. So it is the same path whether you ran to
@@ -1501,10 +1933,12 @@
     if (now - lastTrailAt > 50) { lastTrailAt = now; drawTrails(); }
     renderLight(sample);
     drawRays(sample);
+    renderBala(sample);
 
     if (Math.abs(Date.now() - lastTableMs) > 120) {
       lastTableMs = Date.now();
       updateTable(sample, sunLon);
+      if (showBala) balaWords(sample);
     }
   }
 
@@ -1548,16 +1982,18 @@
 
   function showMoment() {
     var d = new Date(simMs);
-    momentEl.textContent = d.toLocaleString(localeTag(), {
-      year: "numeric", month: "short", day: "2-digit",
-      hour: "2-digit", minute: "2-digit"
-    });
+    var opts = { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" };
+    // A snapshot is read on its place's clock, not the reader's.
+    if (mode === "snap") opts.timeZone = snapTz.value;
+    momentEl.textContent = d.toLocaleString(localeTag(), opts) +
+                           (mode === "snap" ? " · " + snap.place : "");
     if (fetchFailed) {
       chipEl.classList.add("err");
       stateEl.textContent = I18N.t(fetchFailed);
     } else {
       chipEl.classList.remove("err");
       stateEl.textContent = !buf ? I18N.t("sky.loading")
+        : mode === "snap" ? I18N.t("sky.snapshot")
         : (running ? I18N.t("sky.running") : I18N.t("sky.held"));
     }
     if (document.activeElement !== whenInput) whenInput.value = localInputValue(simMs);
@@ -1649,6 +2085,11 @@
   bindToggle("tgPaths", function (on) { showPaths = on; });
   bindToggle("tgLines", function (on) { showLines = on; });
   bindToggle("tgAsta", function (on) { showAsta = on; });
+  bindToggle("tgBala", function (on) {
+    showBala = on;
+    document.getElementById("balaCard").hidden = !on;
+    balaSig = null;                           // catch up on whatever moved meanwhile
+  });
   bindToggle("tgFig", function (on) { layer.figures.setAttribute("display", on ? "inline" : "none"); });
   bindToggle("tgNak", function (on) {
     document.getElementById("sky-nak").setAttribute("opacity", on ? 1 : 0);
@@ -1696,6 +2137,177 @@
   lightStrength = parseInt(strengthEl.value, 10) / 100;
   strengthOut.textContent = strengthEl.value;
 
+  // ── modes: simulation, and one moment at one place ─────────────────────
+  // The snapshot is the simulation held still, at an instant named by a
+  // place's own clock - so every layer, the table and the bala read it
+  // exactly as they read a running sky. What the place adds is the Lagna.
+  var mode = "sim";
+  var snap = { lat: 13.0827, lng: 80.2707, place: "Chennai", lagna: null, utcMs: null };
+  var snapDate = document.getElementById("snapDate");
+  var snapTime = document.getElementById("snapTime");
+  var snapPlace = document.getElementById("snapPlace");
+  var snapTz = document.getElementById("snapTz");
+  var snapNote = document.getElementById("snapNote");
+  var lagnaEl = document.getElementById("skyLagna");
+
+  (function fillZones() {
+    var zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (err) {}
+    if (zones.indexOf("Asia/Kolkata") < 0) zones.unshift("Asia/Kolkata");
+    if (zones.indexOf("UTC") < 0) zones.push("UTC");
+    zones.forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = z;
+      snapTz.appendChild(o);
+    });
+    snapTz.value = "Asia/Kolkata";
+  })();
+
+  // The wall clock in a zone, as the date and time inputs want it.
+  function wallClock(ms, zone) {
+    var parts = {};
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit"
+    }).formatToParts(new Date(ms)).forEach(function (p) { parts[p.type] = p.value; });
+    return { date: parts.year + "-" + parts.month + "-" + parts.day,
+             time: parts.hour + ":" + parts.minute };
+  }
+  function snapToNow() {
+    var w = wallClock(Date.now(), snapTz.value);
+    snapDate.value = w.date;
+    snapTime.value = w.time;
+  }
+  snapToNow();
+
+  var snapSeq = 0;
+  function applySnapshot() {
+    if (!snapDate.value || !snapTime.value) return;
+    var seq = ++snapSeq;               // only the latest answer is drawn
+    fetch("/sky-snapshot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: snapDate.value, time: snapTime.value,
+                             lat: snap.lat, lng: snap.lng, tz: snapTz.value })
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || "sky.err_generic");
+        return data;
+      });
+    }).then(function (data) {
+      if (seq !== snapSeq || mode !== "snap") return;
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(data.utc);
+      snap.utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+      snap.lagna = data.lagna;
+      snapNote.classList.remove("err");
+      snapNote.textContent = Math.abs(snap.lat).toFixed(2) + "°" + (snap.lat >= 0 ? "N" : "S") + " " +
+                             Math.abs(snap.lng).toFixed(2) + "°" + (snap.lng >= 0 ? "E" : "W");
+      jumpTo(snap.utcMs);
+      drawLagna();
+    }).catch(function (err) {
+      if (seq !== snapSeq) return;
+      snapNote.classList.add("err");
+      snapNote.textContent = I18N.t((err && err.message && err.message.indexOf("sky.") === 0)
+                                    ? err.message : "sky.err_generic");
+    });
+  }
+
+  function findPlace() {
+    var q = snapPlace.value.trim();
+    if (!q) return;
+    snapNote.classList.remove("err");
+    snapNote.textContent = "…";
+    var body = new URLSearchParams();
+    body.set("place", q);
+    fetch("/geocode", { method: "POST", body: body }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error();
+        return data;
+      });
+    }).then(function (data) {
+      snap.lat = data.lat; snap.lng = data.lng; snap.place = q;
+      applySnapshot();
+    }).catch(function () {
+      snapNote.classList.add("err");
+      snapNote.textContent = I18N.t("sky.place_err");
+    });
+  }
+
+  // The Lagna: a gold spoke at its longitude, and every rasi numbered as a
+  // bhava counted from it.
+  function drawLagna() {
+    while (layer.lagna.firstChild) layer.lagna.removeChild(layer.lagna.firstChild);
+    var on = mode === "snap" && snap.lagna !== null;
+    lagnaEl.hidden = !on;
+    if (!on) return;
+    var a = pt(snap.lagna, R_FIELD_IN), b = pt(snap.lagna, R_SIGN_OUT);
+    el("line", {
+      x1: a[0].toFixed(1), y1: a[1].toFixed(1), x2: b[0].toFixed(1), y2: b[1].toFixed(1),
+      stroke: "#f0d878", "stroke-width": 3, "stroke-linecap": "round", "stroke-opacity": 0.95
+    }, layer.lagna);
+    var tip = pt(snap.lagna, R_SIGN_OUT - 4), l = pt(snap.lagna - 2.2, R_SIGN_OUT - 22),
+        r = pt(snap.lagna + 2.2, R_SIGN_OUT - 22);
+    el("path", {
+      d: "M" + tip.join(",") + "L" + l.join(",") + "L" + r.join(",") + "Z", fill: "#f0d878"
+    }, layer.lagna);
+    var ascIdx = Math.floor(norm360(snap.lagna) / 30);
+    for (var s2 = 0; s2 < 12; s2++) {
+      var bhava = ((s2 - ascIdx + 12) % 12) + 1;
+      var hp = pt(s2 * 30 + 4.5, R_SIGN_IN + 12);
+      el("text", {
+        x: hp[0].toFixed(1), y: hp[1].toFixed(1), "class": "bhava-num" + (bhava === 1 ? " one" : ""),
+        "text-anchor": "middle", "dominant-baseline": "middle"
+      }, layer.lagna).textContent = bhava;
+    }
+    lagnaWords();
+  }
+
+  function lagnaWords() {
+    if (mode !== "snap" || snap.lagna === null) return;
+    var lon = norm360(snap.lagna);
+    var rasi = I18N.term("sign", SIGNS[Math.floor(lon / 30)]) + " " + fmtDMS(lon % 30);
+    var nak = nakNames ? I18N.term("nakshatra", nakNames[Math.floor(lon / NAK_SPAN)]) + " · " +
+      I18N.t("sky.pada", { n: Math.floor((lon % NAK_SPAN) / (NAK_SPAN / 4)) + 1 }) : "";
+    lagnaEl.textContent = I18N.t("sky.lagna_line", { place: snap.place, rasi: rasi, nak: nak });
+  }
+
+  function setMode(m) {
+    mode = m;
+    document.querySelectorAll(".sky-mode").forEach(function (b) {
+      var on = b.getAttribute("data-mode") === m;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.getElementById("simControls").hidden = (m !== "sim");
+    document.getElementById("snapControls").hidden = (m !== "snap");
+    if (m === "snap") {
+      running = false;
+      applySnapshot();
+    } else {
+      snapSeq++;                      // drop an answer still on its way
+      running = true;
+      lastTick = 0;
+    }
+    syncTransport();
+    drawLagna();
+    showMoment();
+  }
+
+  document.querySelectorAll(".sky-mode").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.getAttribute("data-mode")); });
+  });
+  snapDate.addEventListener("change", applySnapshot);
+  snapTime.addEventListener("change", applySnapshot);
+  snapTz.addEventListener("change", applySnapshot);
+  document.getElementById("snapFind").addEventListener("click", findPlace);
+  snapPlace.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); findPlace(); }
+  });
+  document.getElementById("snapNow").addEventListener("click", function () {
+    snapToNow();
+    applySnapshot();
+  });
+
   // ── the loop ───────────────────────────────────────────────────────────
   function frame(ts) {
     if (!lastTick) lastTick = ts;
@@ -1720,6 +2332,7 @@
   I18N.onChange(function () {
     syncTransport();
     frameNote();
+    lagnaWords();
     lastTableMs = 0;
     showMoment();
   });

@@ -856,16 +856,27 @@ def get_rahu_data(subject):
     )
 
 
+# Swiss Ephemeris keeps its sidereal mode in one process-wide setting, and
+# Kerykeion ends every subject with swe.close(), which puts that setting back
+# to its default - Fagan-Bradley, 0.88 deg away from Lahiri. Two requests on
+# two threads could interleave, and a sky window computed beside a chart came
+# back shifted by exactly that much. Everything that touches the ephemeris
+# takes this lock.
+import threading as _threading
+SWE_LOCK = _threading.Lock()
+
+
 def build_vedic_subject(name, year, month, day, hour, minute, lat, lng, tz_str, city="Unknown"):
     """Create a sidereal (Lahiri) Kerykeion subject, fully offline (no GeoNames call)."""
-    return AstrologicalSubject(
-        name=name,
-        year=year, month=month, day=day, hour=hour, minute=minute,
-        lat=lat, lng=lng, tz_str=tz_str, city=city,
-        online=False,
-        zodiac_type="Sidereal",
-        sidereal_mode="LAHIRI",
-    )
+    with SWE_LOCK:
+        return AstrologicalSubject(
+            name=name,
+            year=year, month=month, day=day, hour=hour, minute=minute,
+            lat=lat, lng=lng, tz_str=tz_str, city=city,
+            online=False,
+            zodiac_type="Sidereal",
+            sidereal_mode="LAHIRI",
+        )
 
 
 def house_from_signs(planet_sign_abbr, ascendant_sign_abbr):
@@ -5904,8 +5915,13 @@ _SKY_BODIES = [
 def _sky_frames(start, step_minutes, count):
     """[sidereal longitude, degrees per day] for the nine grahas, at `count`
     instants `step_minutes` apart from the UTC wall time `start`."""
-    # Both are process-wide settings, and Kerykeion sets them afresh on every
-    # subject - so set them here, every time, rather than trust they stand.
+    # Both are process-wide settings that Kerykeion resets when it is done,
+    # so set them here, every time, and hold SWE_LOCK until the run is over.
+    with SWE_LOCK:
+        return _sky_frames_locked(start, step_minutes, count)
+
+
+def _sky_frames_locked(start, step_minutes, count):
     _swe.set_ephe_path(_SKY_EPHE_PATH)
     _swe.set_sid_mode(_swe.SIDM_LAHIRI)
     jd0 = _swe.julday(start.year, start.month, start.day,
@@ -5968,6 +5984,46 @@ def sky_positions():
         # place to forget.
         "orbs": COMBUSTION_ORBS,
         "nakshatras": NAKSHATRA_NAMES,
+    })
+
+
+@app.route("/sky-snapshot", methods=["POST"])
+def sky_snapshot():
+    """A place's wall-clock moment, for the sky page's snapshot mode: the UTC
+    instant it names, and the Lagna rising there then.
+
+    The grahas need nothing from this - they are geocentric and the page
+    reads them from /sky-positions like any other moment. Only the Lagna
+    depends on where the reader stands, and only the place's own clock can
+    say which instant "10:30 in Chennai" is.
+    """
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        local = _dt.strptime("%s %s" % (str(payload.get("date", "")).strip(),
+                                        str(payload.get("time", "")).strip()),
+                             "%Y-%m-%d %H:%M")
+        lat, lng = float(payload.get("lat")), float(payload.get("lng"))
+        tz = str(payload.get("tz", "")).strip()
+        zone = ZoneInfo(tz)
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        return jsonify({"error": "sky.err_request"}), 400
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return jsonify({"error": "sky.err_request"}), 400
+    if not (_SKY_MIN_YEAR <= local.year <= _SKY_MAX_YEAR):
+        return jsonify({"error": "sky.err_range"}), 400
+
+    utc = local.replace(tzinfo=zone).astimezone(ZoneInfo("UTC"))
+    try:
+        subject = build_vedic_subject("Sky", local.year, local.month, local.day,
+                                      local.hour, local.minute, lat, lng, tz)
+    except Exception as e:
+        return jsonify({"error": "sky.err_generic", "detail": str(e)}), 400
+    return jsonify({
+        "utc": utc.strftime("%Y-%m-%dT%H:%M"),
+        "lagna": round(subject.first_house["abs_pos"], 4),
     })
 
 
