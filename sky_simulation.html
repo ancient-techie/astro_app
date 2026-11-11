@@ -954,10 +954,12 @@
 
   // ── the ephemeris window ───────────────────────────────────────────────
   // One window of evenly spaced frames at a time, with the playhead kept away
-  // from its edges. The window is replaced, never patched: a replacement
-  // costs a quarter of a second on the server and the old one keeps drawing
-  // until it lands, so nothing ever stalls mid-run.
-  var WINDOW_FRAMES = 360;
+  // from its edges. The window is replaced, never patched, and the old one
+  // keeps drawing until the new one lands. That only holds if it lands in
+  // time: a hosted server is far slower than a laptop and further away, so a
+  // window is long (twelve seconds of playback at the fastest pace) and its
+  // replacement is asked for with more than five of them still to run.
+  var WINDOW_FRAMES = 720;
   var buf = null;              // { stepMs, startMs, spanMs, n, lon:{}, spd:{} }
   var orbs = null;
   var nakNames = null;
@@ -1122,7 +1124,7 @@
     }
     if (!running) return;
     var frac = (simMs - buf.startMs) / buf.spanMs;
-    if ((dir > 0 && frac > 0.7) || (dir < 0 && frac < 0.3)) requestWindow(want, simMs, dir > 0);
+    if ((dir > 0 && frac > 0.55) || (dir < 0 && frac < 0.45)) requestWindow(want, simMs, dir > 0);
   }
 
   // ── reading the window ─────────────────────────────────────────────────

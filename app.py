@@ -5854,7 +5854,7 @@ def transit_positions():
 # geocentric, identical read from Ujjain or from Greenwich (only the Lagna
 # moves with the place, and this page has no Lagna). The subject is built at
 # 0N 0E / UTC, and the page converts to the reader's own clock.
-_SKY_MAX_FRAMES = 400          # ~0.25 s of ephemeris per request
+_SKY_MAX_FRAMES = 800          # the page asks for 720 a window
 _SKY_MAX_STEP_MINUTES = 28800   # 20 days
 _SKY_MIN_YEAR, _SKY_MAX_YEAR = 1800, 2399
 
@@ -5864,8 +5864,9 @@ _SKY_PLANET_ATTRS = {
 }
 
 
-def _sky_frame(when):
-    """[sidereal longitude, degrees per day] for the nine grahas at an instant."""
+def _sky_frame_kerykeion(when):
+    """The reference _sky_frames is checked against: the same nine numbers,
+    read off a full Kerykeion subject the way every other page reads them."""
     subject = build_vedic_subject(
         "Sky", when.year, when.month, when.day, when.hour, when.minute,
         0.0, 0.0, "UTC", "Greenwich",
@@ -5874,12 +5875,54 @@ def _sky_frame(when):
     for label, attr in _SKY_PLANET_ATTRS.items():
         point = getattr(subject, attr)
         frame[label] = [round(point["abs_pos"], 4), round(point["speed"], 5)]
-    # Ketu is Rahu's opposite point, so it shares Rahu's motion - both always
-    # vakri, which is also why neither is ever tested for asta.
     rahu = get_rahu_data(subject)
     frame["Rahu"] = [round(rahu["abs_pos"], 4), round(rahu["speed"], 5)]
     frame["Ketu"] = [round((rahu["abs_pos"] + 180.0) % 360.0, 4), round(rahu["speed"], 5)]
     return frame
+
+
+# A Kerykeion subject also casts houses, validates itself and fills in a
+# hundred fields this page never reads - about 1 ms a frame on a laptop and
+# fifteen on a small hosted CPU, where a 360-frame window took six seconds
+# and the wheel stopped dead waiting for it. The nine longitudes alone are a
+# few microseconds each from Swiss Ephemeris, asked exactly as Kerykeion asks
+# it: its own ephemeris files, Lahiri, the same flags, the true node.
+# _sky_frame_kerykeion is kept so the two can be compared.
+import swisseph as _swe
+from pathlib import Path as _Path
+import kerykeion as _kerykeion
+
+_SKY_EPHE_PATH = str(_Path(_kerykeion.__file__).parent / "sweph")
+_SKY_FLAGS = _swe.FLG_SWIEPH | _swe.FLG_SPEED | _swe.FLG_SIDEREAL
+_SKY_BODIES = [
+    ("Sun", _swe.SUN), ("Moon", _swe.MOON), ("Mars", _swe.MARS),
+    ("Mercury", _swe.MERCURY), ("Jupiter", _swe.JUPITER),
+    ("Venus", _swe.VENUS), ("Saturn", _swe.SATURN), ("Rahu", _swe.TRUE_NODE),
+]
+
+
+def _sky_frames(start, step_minutes, count):
+    """[sidereal longitude, degrees per day] for the nine grahas, at `count`
+    instants `step_minutes` apart from the UTC wall time `start`."""
+    # Both are process-wide settings, and Kerykeion sets them afresh on every
+    # subject - so set them here, every time, rather than trust they stand.
+    _swe.set_ephe_path(_SKY_EPHE_PATH)
+    _swe.set_sid_mode(_swe.SIDM_LAHIRI)
+    jd0 = _swe.julday(start.year, start.month, start.day,
+                      start.hour + start.minute / 60.0)
+    frames = []
+    for i in range(count):
+        jd = jd0 + i * step_minutes / 1440.0
+        frame = {}
+        for label, body in _SKY_BODIES:
+            pos = _swe.calc_ut(jd, body, _SKY_FLAGS)[0]
+            frame[label] = [round(pos[0], 4), round(pos[3], 5)]
+        # Ketu is Rahu's opposite point, so it shares Rahu's motion - both
+        # always vakri, which is also why neither is ever tested for asta.
+        rahu_lon, rahu_spd = pos[0], pos[3]
+        frame["Ketu"] = [round((rahu_lon + 180.0) % 360.0, 4), round(rahu_spd, 5)]
+        frames.append(frame)
+    return frames
 
 
 @app.route("/sky-positions", methods=["POST"])
@@ -5911,8 +5954,7 @@ def sky_positions():
         return jsonify({"error": "sky.err_range"}), 400
 
     try:
-        frames = [_sky_frame(start + timedelta(minutes=step_minutes * i))
-                  for i in range(count)]
+        frames = _sky_frames(start, step_minutes, count)
     except Exception as e:
         return jsonify({"error": "sky.err_generic", "detail": str(e)}), 400
 
