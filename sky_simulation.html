@@ -437,6 +437,8 @@
   .bala-key .good, .bala-bar.good { --bar: #3fcf7f; }
   .bala-key .bad,  .bala-bar.bad  { --bar: #ff6450; }
   .bala-key .str,  .bala-bar.str  { --bar: #5fb4ff; }
+  .bala-key .dig,  .bala-bar.dig  { --bar: #c48cff; }
+  .bala-lagna { font-size: 11px; color: var(--sky-gold); margin: -2px 0 6px; }
   .bala-row {
     display: grid;
     grid-template-columns: minmax(92px, 34%) 1fr;
@@ -662,7 +664,9 @@
         <span class="good" data-i18n="sky.bala_good">Subha</span>
         <span class="bad" data-i18n="sky.bala_bad">Papa</span>
         <span class="str" data-i18n="sky.bala_str">Sthana bala</span>
+        <span class="dig" data-i18n="sky.bala_dig">Dig bala</span>
       </div>
+      <p class="bala-lagna" id="balaLagna"></p>
       <div id="balaRows"></div>
     </div>
     <div class="sky-card">
@@ -1079,6 +1083,7 @@
   var WINDOW_FRAMES = 720;
   var buf = null;              // { stepMs, startMs, spanMs, n, lon:{}, spd:{} }
   var orbs = null;
+  var ayanamsa = null;         // Lahiri, from the server, for the moving Lagna
   var nakNames = null;
   var fetching = false;
   var fetchFailed = null;
@@ -1154,6 +1159,7 @@
     });
 
     if (data.orbs) orbs = data.orbs;
+    if (typeof data.ayanamsa === "number") ayanamsa = data.ayanamsa;
     if (data.nakshatras) { nakNames = data.nakshatras; if (mode === "snap") lagnaWords(); }
     return { stepMs: stepMs, startMs: startMs, spanMs: stepMs * (n - 1), n: n,
              stepMin: data.step_minutes, lon: lon, spd: spd };
@@ -1536,6 +1542,17 @@
     return false;
   }
 
+  var DIG_BALA_HOUSE={Mon:4,Ven:4,Jup:1,Mer:1,Sat:7,Mar:10,Sun:10};
+  function getDigBala(planet, sign, ascSIdx) {
+    if(planet==='Asc'||planet==='Rahu'||planet==='Ketu') return 0;
+    var bestH=DIG_BALA_HOUSE[planet]; if(!bestH) return 0;
+    if(ascSIdx===-1) return 0;
+    var sIdx=SIGNS.indexOf(sign);
+    var houseNum=((sIdx-ascSIdx+12)%12)+1;
+    var dist=Math.min(Math.abs(houseNum-bestH),(12-Math.abs(houseNum-bestH)));
+    return Math.round((1-dist/6)*100);
+  }
+
   var PLANET_GOOD_MULT={Jup:1.0, Ven:0.8, Mer:0.7};
   var PLANET_BAD_MULT={Sat:0.70, Mar:0.60, Rahu:0.80, Ketu:0.30};
 
@@ -1580,7 +1597,7 @@
   // nine are always placed in the sky. A source is kept as {g, pts, kind}
   // rather than the playground's English string, so it can be named in
   // either language.
-  function computePlanetScores(at){
+  function computePlanetScores(at, ascSIdx){
     var sunSIdx=at.Sun, moonSIdx=at.Mon;
     var bright=pgMoonBrightness(moonSIdx,sunSIdx);
     var badFactor=moonBadFactor(moonSIdx,sunSIdx);
@@ -1651,14 +1668,17 @@
       if(r.score===0&&hasNeechaBhanga(p,at[p],signTP)){ nb=true; r={score:35,label:'Debilitation (Neecha Bhanga)'}; }
       return {score:r.score,label:r.label,nb:nb};
     }
+    // Dig bala is the graha's own; the nodes have none, as in the playground.
     placed.forEach(function(e){
       var p=e.planet;
       if(p==='Rahu'||p==='Ketu'){
         var lord=SIGN_LORD[SIGNS[at[p]]];
         var ls=stanaOf(lord); ls.via=lord;
         pScores[p].stana=ls;
+        pScores[p].dig=null;
       } else {
         pScores[p].stana=stanaOf(p);
+        pScores[p].dig=getDigBala(p,SIGNS[at[p]],ascSIdx);
       }
     });
     return pScores;
@@ -1666,8 +1686,8 @@
 
   // The bars run on fixed scales, not on the largest value in view, so a
   // bar only moves when its own graha's lot changes.
-  var BALA_SCALE = { good: 300, bad: 300, str: 100 };
-  var showBala = true, balaSig = null, balaScores = null;
+  var BALA_SCALE = { good: 300, bad: 300, str: 100, dig: 100 };
+  var showBala = true, balaSig = null, balaScores = null, balaAsc = -1;
   var balaRows = {};
   (function buildBala() {
     var host = document.getElementById("balaRows");
@@ -1698,7 +1718,7 @@
       var bars = document.createElement("div");
       bars.className = "bala-bars";
       var refs = { note: note };
-      ["good", "bad", "str"].forEach(function (kind) {
+      ["good", "bad", "str", "dig"].forEach(function (kind) {
         var bar = document.createElement("div");
         bar.className = "bala-bar " + kind;
         var track = document.createElement("span");
@@ -1710,6 +1730,7 @@
         bar.appendChild(val);
         bars.appendChild(bar);
         refs[kind] = { fill: fill, val: val };
+        if (kind === "dig") refs.digBar = bar;
       });
       var src = document.createElement("div");
       src.className = "bala-src";
@@ -1741,6 +1762,26 @@
     return I18N.t(e < 180 ? "pg.waxing" : "pg.waning", { pct: lit });
   }
 
+  // The Lagna for a place at an instant. A Lagna changes rasi every two
+  // hours or so, too fast to ask the server for, so it is worked out here:
+  // sidereal time, the ecliptic it cuts at the place's latitude, less the
+  // server's Lahiri ayanamsa. Against Kerykeion's own first house it agrees
+  // to 0.011 deg over 1850-2350 and latitudes to 60 deg.
+  function lagnaAt(ms, lat, lng) {
+    var jd = ms / DAY_MS + 2440587.5, d = jd - 2451545, T = d / 36525;
+    var gmst = 280.46061837 + 360.98564736629 * d + 0.000387933 * T * T - T * T * T / 38710000;
+    var th = norm360(gmst + lng) * DEG, eps = (23.439291 - 0.0130042 * T) * DEG, ph = lat * DEG;
+    var tropical = Math.atan2(Math.cos(th),
+      -(Math.sin(th) * Math.cos(eps) + Math.tan(ph) * Math.sin(eps))) / DEG;
+    return norm360(tropical - ayanamsa);
+  }
+  // A snapshot has the server's exact Lagna; the simulation works out its
+  // own, live, for the same place.
+  function currentLagna() {
+    if (mode === "snap") return snap.lagna;
+    return ayanamsa === null ? null : lagnaAt(shownMs, snap.lat, snap.lng);
+  }
+
   function setBar(ref, value, scale) {
     ref.fill.style.width = Math.min(100, value / scale * 100).toFixed(1) + "%";
     ref.val.textContent = Math.round(value);
@@ -1752,17 +1793,22 @@
     GRAHAS.forEach(function (g) {
       at[PG_CODE[g.code]] = Math.floor(norm360(sample[g.code].lon) / 30);
     });
-    // Everything the rules read is a rasi, so nothing changes until a graha
-    // crosses into the next one.
-    var sig = Object.keys(at).map(function (k) { return at[k]; }).join(",");
+    var lagna = currentLagna();
+    var ascSIdx = lagna === null ? -1 : Math.floor(norm360(lagna) / 30);
+    // Everything the rules read is a rasi, so nothing changes until a graha -
+    // or the Lagna - crosses into the next one.
+    var sig = Object.keys(at).map(function (k) { return at[k]; }).join(",") + "|" + ascSIdx;
     if (sig !== balaSig) {
       balaSig = sig;
-      balaScores = computePlanetScores(at);
+      balaAsc = ascSIdx;
+      balaScores = computePlanetScores(at, ascSIdx);
       TABLE_ORDER.forEach(function (code) {
         var sc = balaScores[PG_CODE[code]], r = balaRows[code];
         setBar(r.good, sc.goodness, BALA_SCALE.good);
         setBar(r.bad, sc.badness, BALA_SCALE.bad);
         setBar(r.str, sc.stana.score, BALA_SCALE.str);
+        setBar(r.dig, sc.dig || 0, BALA_SCALE.dig);
+        r.digBar.classList.toggle("none", ascSIdx === -1 || sc.dig === null);
       });
       balaWords(sample);
     }
@@ -1772,6 +1818,8 @@
   // what - and Chandra's paksha, which moves between the rasis.
   function balaWords(sample) {
     if (!balaScores) return;
+    document.getElementById("balaLagna").textContent = balaAsc === -1 ? "" :
+      I18N.t("sky.bala_dig_at", { place: snap.place, rasi: I18N.term("sign", SIGNS[balaAsc]) });
     TABLE_ORDER.forEach(function (code) {
       var sc = balaScores[PG_CODE[code]], r = balaRows[code];
       var dignity = I18N.term("stana_label", sc.stana.label);
@@ -2199,6 +2247,7 @@
       var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(data.utc);
       snap.utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
       snap.lagna = data.lagna;
+      balaSig = null;                 // a new place or moment re-reads the dig bala
       snapNote.classList.remove("err");
       snapNote.textContent = Math.abs(snap.lat).toFixed(2) + "°" + (snap.lat >= 0 ? "N" : "S") + " " +
                              Math.abs(snap.lng).toFixed(2) + "°" + (snap.lng >= 0 ? "E" : "W");
@@ -2290,6 +2339,7 @@
     }
     syncTransport();
     drawLagna();
+    balaSig = null;
     showMoment();
   }
 

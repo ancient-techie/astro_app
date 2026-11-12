@@ -5921,6 +5921,17 @@ def _sky_frames(start, step_minutes, count):
         return _sky_frames_locked(start, step_minutes, count)
 
 
+def _sky_ayanamsa(when):
+    """Lahiri ayanamsa at a UTC instant. The page computes a moving Lagna
+    itself - it changes rasi every two hours or so, far too fast to fetch - and
+    needs only this to turn its tropical Lagna sidereal. It drifts about a
+    minute of arc a century, so one value serves a whole window."""
+    with SWE_LOCK:
+        _swe.set_sid_mode(_swe.SIDM_LAHIRI)
+        return _swe.get_ayanamsa_ut(_swe.julday(when.year, when.month, when.day,
+                                                when.hour + when.minute / 60.0))
+
+
 def _sky_frames_locked(start, step_minutes, count):
     _swe.set_ephe_path(_SKY_EPHE_PATH)
     _swe.set_sid_mode(_swe.SIDM_LAHIRI)
@@ -5982,6 +5993,7 @@ def sky_positions():
         # Shipped with the data rather than copied into the page: both tables
         # already live in this file, and a second copy in JS would be one more
         # place to forget.
+        "ayanamsa": round(_sky_ayanamsa(start), 6),
         "orbs": COMBUSTION_ORBS,
         "nakshatras": NAKSHATRA_NAMES,
     })
