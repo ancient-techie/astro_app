@@ -5551,7 +5551,7 @@ ADMIN_TEMPLATE = """
 """
 
 DEFAULT_FORM = {
-    "name": "",
+    "name": "Guest",
     "city": "Mumbai",
     "lat": "19.0760",
     "lng": "72.8777",
