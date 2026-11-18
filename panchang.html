@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+     The daily panchangam - one Hindu day, sunrise to sunrise, at one place.
+
+     Everything astronomical is in panchang.py and comes back from
+     POST /panchang-data as local wall times with their UTC offset; this page
+     only lays them out, rounds them to the minute, and marks what is running
+     now. Nothing here recomputes a tithi or a sunrise.
+
+     The day and place live in the query string (?date=&place=&lat=&lng=&tz=),
+     so a link to one day survives being shared. With no date the server picks
+     the day running now at that place - yesterday's until this morning's
+     sunrise - and the page keeps following it across the next sunrise.
+     With no place, the last one used here (localStorage), else Chennai.
+
+     Its own file for the reason sky_simulation.html is: Jinja never sees it,
+     so braces and template literals arrive intact. Restart the server by hand
+     after editing - the reloader only watches .py files.
+     =========================================================================== -->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title data-i18n="pan.page_title">Panchangam &ndash; the day</title>
+<script>
+  (function () {
+    try {
+      var lang = window.localStorage.getItem("vedic-chart-lang");
+      if (lang === "en" || lang === "ta") {
+        document.documentElement.setAttribute("data-lang", lang);
+        document.documentElement.setAttribute("lang", lang);
+      }
+      var theme = window.localStorage.getItem("vedic-theme");
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      } else if (theme === "auto" && window.matchMedia
+                 && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (err) {}
+  })();
+</script>
+<script src="/i18n.js"></script>
+<meta name="description" content="The daily panchangam: tithi, vara, nakshatra, yoga, karana, Rahu kalam and horai for your city.">
+<meta name="theme-color" content="#0b0d17">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VedicChart">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&family=Noto+Sans+Tamil:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --pan-bg: #0a0b16;
+    --pan-panel: rgba(255, 255, 255, 0.045);
+    --pan-border: rgba(212, 175, 55, 0.22);
+    --pan-ink: #e4dac9;
+    --pan-dim: rgba(228, 218, 201, 0.6);
+    --pan-gold: #d4af37;
+    --pan-gold-soft: rgba(212, 175, 55, 0.1);
+    --pan-now: rgba(212, 175, 55, 0.18);
+    --pan-warn: #e08a6a;
+    --pan-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  }
+  html[data-theme="light"] {
+    --pan-bg: #f4efe4;
+    --pan-panel: rgba(32, 26, 12, 0.045);
+    --pan-border: rgba(140, 110, 30, 0.3);
+    --pan-ink: #2b2415;
+    --pan-dim: rgba(43, 36, 21, 0.64);
+    --pan-gold: #8a6b14;
+    --pan-gold-soft: rgba(160, 125, 25, 0.12);
+    --pan-now: rgba(160, 125, 25, 0.18);
+    --pan-warn: #a2431f;
+    --pan-shadow: 0 10px 28px rgba(80, 65, 30, 0.16);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--pan-bg);
+    color: var(--pan-ink);
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 28px;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+  html[data-lang="ta"] body { font-family: 'Noto Sans Tamil', 'Lato', sans-serif; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .pan-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pan-top h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.1rem, 3.8vw, 1.55rem);
+    letter-spacing: 0.12em;
+    color: var(--pan-gold);
+  }
+  html[data-lang="ta"] .pan-top h1 { font-family: 'Noto Sans Tamil', serif; letter-spacing: 0.02em; }
+  .pan-top .sub { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--pan-dim); line-height: 1.5; }
+  .pan-link {
+    font-size: 0.75rem; letter-spacing: 0.05em;
+    padding: 8px 16px; border-radius: 20px;
+    border: 1.5px solid var(--pan-border); background: var(--pan-gold-soft);
+    color: var(--pan-gold); text-decoration: none; white-space: nowrap;
+  }
+  .pan-link:hover { border-color: var(--pan-gold); }
+  .lang-switch {
+    flex-shrink: 0; display: inline-flex; gap: 2px; padding: 3px;
+    border: 1.5px solid var(--pan-border); border-radius: 999px; background: var(--pan-gold-soft);
+  }
+  .lang-switch button {
+    padding: 5px 11px; font-size: 11px; font-weight: 700;
+    color: var(--pan-dim); background: transparent; border: none; border-radius: 999px; cursor: pointer;
+  }
+  .lang-switch button.active { background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%); color: #1c1710; }
+
+  /* ── controls ────────────────────────────────────────────────────────── */
+  .pan-dock {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    padding: 10px 12px; margin-bottom: 14px;
+    border: 1px solid var(--pan-border); border-radius: 14px;
+    background: var(--pan-bg);
+    box-shadow: var(--pan-shadow);
+  }
+  .pan-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .pan-field {
+    display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--pan-dim);
+  }
+  .pan-field input, .pan-field select {
+    font: inherit; font-size: 13px; letter-spacing: 0; text-transform: none;
+    padding: 6px 8px; border-radius: 8px;
+    border: 1px solid var(--pan-border); background: var(--pan-panel); color: var(--pan-ink);
+    min-width: 0;
+  }
+  .pan-field select { max-width: 180px; }
+  #panPlace { width: 140px; }
+  .pan-btn {
+    font: inherit; font-size: 13px;
+    padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--pan-border); background: var(--pan-gold-soft); color: var(--pan-gold);
+  }
+  .pan-btn:hover { border-color: var(--pan-gold); }
+  .pan-btn.on { background: var(--pan-gold); color: #1c1710; }
+  .pan-note { font-size: 12px; color: var(--pan-dim); }
+  .pan-note.err { color: var(--pan-warn); }
+  html[data-theme="light"] .pan-field input, html[data-theme="light"] .pan-field select { color-scheme: light; }
+  .pan-field input, .pan-field select { color-scheme: dark; }
+
+  /* ── cards ───────────────────────────────────────────────────────────── */
+  .pan-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 760px) { .pan-grid { grid-template-columns: 1.5fr 1fr; } }
+  .card {
+    border: 1px solid var(--pan-border); border-radius: 16px;
+    background: var(--pan-panel); padding: 16px; min-width: 0;
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--pan-gold); margin-bottom: 12px; font-weight: 700;
+  }
+  html[data-lang="ta"] .card h2 { letter-spacing: 0.02em; font-size: 13px; }
+  .wide { grid-column: 1 / -1; }
+
+  .hero { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; }
+  .hero .vara {
+    font-family: 'Cinzel', serif; font-size: clamp(1.5rem, 6vw, 2.2rem); color: var(--pan-gold); line-height: 1.1;
+  }
+  html[data-lang="ta"] .hero .vara { font-family: 'Noto Sans Tamil', serif; font-size: clamp(1.3rem, 5vw, 1.9rem); }
+  .hero .civil { font-size: 15px; margin-top: 4px; }
+  .hero .tamil { font-size: 13px; color: var(--pan-dim); margin-top: 2px; }
+  .hero .tithi-now { font-size: 15px; margin-top: 2px; }
+  .sunrow {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px; margin-top: 16px; width: 100%;
+  }
+  .sun {
+    border: 1px solid var(--pan-border); border-radius: 12px; padding: 10px 12px;
+    background: var(--pan-gold-soft);
+  }
+  .sun .k { font-size: 11px; color: var(--pan-dim); letter-spacing: 0.04em; }
+  .sun .v { font-size: 18px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .sun .v small { font-size: 11px; color: var(--pan-dim); }
+
+  .limb { padding: 10px 0; border-top: 1px solid var(--pan-border); }
+  .limb:first-of-type { border-top: none; padding-top: 0; }
+  .limb .k { font-size: 11px; color: var(--pan-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+  html[data-lang="ta"] .limb .k { letter-spacing: 0.02em; text-transform: none; font-size: 12px; }
+  .limb .seq { margin-top: 4px; line-height: 1.7; }
+  .limb .nm { font-weight: 700; font-size: 15px; }
+  .limb .nm.past { font-weight: 400; color: var(--pan-dim); }
+  .limb .t { color: var(--pan-dim); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .limb .then { color: var(--pan-dim); font-size: 12px; margin: 0 4px; }
+  .limb .sub { font-size: 12px; color: var(--pan-dim); }
+  .limb .live { background: var(--pan-now); border-radius: 6px; padding: 1px 6px; }
+
+  .kalam { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; }
+  .kalam + .kalam { margin-top: 6px; }
+  .kalam .k { font-weight: 700; }
+  .kalam .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kalam.live { background: var(--pan-now); outline: 1px solid var(--pan-gold); }
+  .kalam .tag { font-size: 11px; color: var(--pan-gold); margin-left: 6px; }
+
+  .horai-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 22px; }
+  .horai-cols h3 { font-size: 11px; color: var(--pan-dim); letter-spacing: 0.1em; text-transform: uppercase; margin: 2px 0 6px; font-weight: 700; }
+  .hr { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 8px; }
+  .hr .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+  html[data-theme="light"] .hr .dot { box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
+  .hr .g { flex: 1; min-width: 0; }
+  .hr .v { font-variant-numeric: tabular-nums; color: var(--pan-dim); font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+  .hr .v sup, .kalam .v sup { font-size: 9px; color: var(--pan-gold); margin-left: 1px; }
+  .hr.live { background: var(--pan-now); outline: 1px solid var(--pan-gold); }
+  .hr.live .v { color: var(--pan-ink); }
+  .horai-note, .foot { font-size: 12px; color: var(--pan-dim); line-height: 1.55; margin-top: 12px; }
+
+  .state { text-align: center; padding: 40px 10px; color: var(--pan-dim); }
+  .state.err { color: var(--pan-warn); }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 520px) {
+    .pan-dock { position: static; }
+    .pan-field select { max-width: 150px; }
+    #panPlace { width: 120px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="pan-top">
+  <h1 data-i18n="pan.title">Panchangam</h1>
+  <p class="sub" data-i18n="pan.subtitle">The five limbs of the day &ndash; vara, tithi, nakshatra, yoga, karana &ndash; from sunrise to the next sunrise.</p>
+  <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  </div>
+  <a class="pan-link" href="/" data-i18n="pg.back">Back to Generator</a>
+</header>
+
+<div class="pan-dock">
+  <div class="pan-group">
+    <button type="button" class="pan-btn" id="panPrev" data-i18n-attr="title:pan.prev;aria-label:pan.prev">&#9664;</button>
+    <label class="pan-field"><span class="sr" data-i18n="pan.date" hidden>Date</span>
+      <input type="date" id="panDate" data-i18n-attr="aria-label:pan.date">
+    </label>
+    <button type="button" class="pan-btn" id="panNext" data-i18n-attr="title:pan.next;aria-label:pan.next">&#9654;</button>
+    <button type="button" class="pan-btn" id="panToday" data-i18n="pan.today">Today</button>
+  </div>
+  <div class="pan-group">
+    <label class="pan-field"><span data-i18n="pan.place">Place</span>
+      <input type="text" id="panPlace" autocomplete="off" value="Chennai">
+    </label>
+    <button type="button" class="pan-btn" id="panFind" data-i18n="pan.find">Find</button>
+  </div>
+  <label class="pan-field"><span data-i18n="pan.zone">Zone</span>
+    <select id="panTz"></select>
+  </label>
+  <label class="pan-field"><span data-i18n="pan.rising">Sunrise by</span>
+    <select id="panRising">
+      <option value="drik" data-i18n="pan.rising_drik">Upper limb</option>
+      <option value="hindu" data-i18n="pan.rising_hindu">Disc centre</option>
+    </select>
+  </label>
+  <button type="button" class="pan-btn" id="panShare" data-i18n="pan.share">Copy link</button>
+  <span class="pan-note" id="panNote"></span>
+</div>
+
+<div id="panState" class="state" data-i18n="pan.loading">Reading the day&hellip;</div>
+
+<main class="pan-grid" id="panMain" hidden>
+  <section class="card wide">
+    <div class="hero">
+      <div>
+        <div class="vara" id="hVara"></div>
+        <div class="civil" id="hCivil"></div>
+        <div class="tamil" id="hTamil"></div>
+      </div>
+      <div>
+        <div class="tithi-now" id="hTithi"></div>
+        <div class="tamil" id="hRasi"></div>
+      </div>
+    </div>
+    <div class="sunrow">
+      <div class="sun"><div class="k" data-i18n="pan.sunrise">Sunrise</div><div class="v" id="tSunrise"></div></div>
+      <div class="sun"><div class="k" data-i18n="pan.sunset">Sunset</div><div class="v" id="tSunset"></div></div>
+      <div class="sun"><div class="k" data-i18n="pan.moonrise">Moonrise</div><div class="v" id="tMoonrise"></div></div>
+      <div class="sun"><div class="k" data-i18n="pan.moonset">Moonset</div><div class="v" id="tMoonset"></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="pan.limbs">The five limbs</h2>
+    <div id="limbs"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="pan.kalam_title">Periods to avoid</h2>
+    <div id="kalams"></div>
+  </section>
+
+  <section class="card wide">
+    <h2 data-i18n="pan.horai_title">Horai</h2>
+    <div class="horai-cols">
+      <div><h3 data-i18n="pan.day">Day</h3><div id="horaiDay"></div></div>
+      <div><h3 data-i18n="pan.night">Night</h3><div id="horaiNight"></div></div>
+    </div>
+    <p class="horai-note" data-i18n="pan.horai_note"></p>
+  </section>
+
+  <p class="foot wide" id="foot"></p>
+</main>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var PLACE_KEY = "vedic-panchang-place";
+  var DEFAULT_PLACE = { place: "Chennai", lat: 13.0827, lng: 80.2707, tz: "Asia/Kolkata" };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var dateEl = $("panDate"), placeEl = $("panPlace"), tzEl = $("panTz"),
+      risingEl = $("panRising"), noteEl = $("panNote"), stateEl = $("panState"), mainEl = $("panMain");
+
+  var data = null;
+  var place = null;
+  // True while showing "the day running now": the date comes from the
+  // server, and the page rolls over by itself at the next sunrise.
+  var following = true;
+  var seq = 0;
+
+  function t(k, p) { return I18N.t(k, p); }
+  function term(kind, k) { return I18N.term(kind, k); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // ── zones ──────────────────────────────────────────────────────────────
+  (function fillZones() {
+    var zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (err) {}
+    if (zones.indexOf("Asia/Kolkata") < 0) zones.unshift("Asia/Kolkata");
+    if (zones.indexOf("UTC") < 0) zones.push("UTC");
+    zones.forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = z;
+      tzEl.appendChild(o);
+    });
+  })();
+  function setZone(z) {
+    if (!z) return;
+    if (![].some.call(tzEl.options, function (o) { return o.value === z; })) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = z;
+      tzEl.appendChild(o);
+    }
+    tzEl.value = z;
+  }
+
+  // ── time formatting ────────────────────────────────────────────────────
+  // Times arrive as the place's wall clock with its offset. The wall clock
+  // is what gets printed (rounded to the nearest minute, as calendars do);
+  // the offset is only for comparing against now.
+  function wall(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
+    var ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + 30000;
+    var d = new Date(ms - ms % 60000);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(),
+             h: d.getUTCHours(), mi: d.getUTCMinutes(),
+             day: d.toISOString().slice(0, 10) };
+  }
+  function clock(iso) {
+    var w = wall(iso);
+    var h12 = w.h % 12 || 12;
+    return h12 + ":" + (w.mi < 10 ? "0" : "") + w.mi + " " + t(w.h < 12 ? "pan.am" : "pan.pm");
+  }
+  // A time, marked when it falls on the next civil day.
+  function when(iso, html) {
+    if (!iso) return html ? '<small>' + esc(t("pan.none")) + '</small>' : t("pan.none");
+    var s = clock(iso);
+    if (wall(iso).day > data.date) {
+      return html ? esc(s) + ' <small>' + esc(t("pan.next_day")) + '</small>'
+                  : s + " (" + t("pan.next_day") + ")";
+    }
+    return html ? esc(s) : s;
+  }
+  // A range in a list row: the next-day mark shrinks to a "+1", because
+  // the words would not fit beside a graha name on a phone.
+  function short(iso) {
+    var s = esc(clock(iso));
+    return wall(iso).day > data.date
+      ? s + '<sup title="' + esc(t("pan.next_day")) + '">+1</sup>' : s;
+  }
+  function span(a, b) { return short(a) + " &ndash; " + short(b); }
+  function ms(iso) { return Date.parse(iso); }
+  function live(a, b) { var n = Date.now(); return n >= ms(a) && n < ms(b); }
+
+  function civilDate(iso) {
+    var p = iso.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    try {
+      return d.toLocaleDateString(I18N.lang === "ta" ? "ta-IN" : "en-GB",
+                                  { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    } catch (err) { return iso; }
+  }
+
+  // ── rendering ──────────────────────────────────────────────────────────
+  function tithiName(r) { return term("paksha", r.paksha) + " " + term("tithi", r.name); }
+
+  // One limb: what ran at sunrise, and whatever followed before the next.
+  function limbRow(key, rows, nameOf, subOf) {
+    var parts = rows.map(function (r, i) {
+      var past = Date.now() >= ms(r.end);
+      var isLive = live(r.start, r.end);
+      var last = i === rows.length - 1;
+      var html = '<span class="' + (isLive ? "live" : "") + '"><span class="nm' + (past ? " past" : "") + '">' +
+                 esc(nameOf(r)) + '</span>';
+      if (subOf) html += ' <span class="sub">' + esc(subOf(r)) + '</span>';
+      html += ' <span class="t">' + esc(t("pan.upto", { time: when(r.end) })) + '</span></span>';
+      return html + (last ? "" : '<span class="then">&rarr;</span>');
+    });
+    return '<div class="limb"><div class="k">' + esc(t(key)) + '</div><div class="seq">' + parts.join("") + '</div></div>';
+  }
+
+  function render() {
+    if (!data) return;
+    var d = data;
+
+    $("hVara").textContent = term("vara", d.vara);
+    $("hCivil").textContent = civilDate(d.date);
+    $("hTamil").textContent = t("pan.tamil_date") + ": " +
+      t("pan.tamil_fmt", { month: term("tamil_month", d.tamil.month), day: d.tamil.day });
+    var cur = d.tithi.filter(function (r) { return live(r.start, r.end); })[0] || d.tithi[0];
+    $("hTithi").textContent = term("paksha", cur.paksha) + " · " + term("tithi", cur.name);
+    $("hRasi").textContent = t("pan.sun_rasi") + ": " + term("sign", d.sun_rasi);
+
+    $("tSunrise").innerHTML = when(d.sunrise, true);
+    $("tSunset").innerHTML = when(d.sunset, true);
+    $("tMoonrise").innerHTML = when(d.moonrise, true);
+    $("tMoonset").innerHTML = when(d.moonset, true);
+
+    $("limbs").innerHTML =
+      '<div class="limb"><div class="k">' + esc(t("pan.vara")) + '</div><div class="seq"><span class="nm">' +
+        esc(term("vara", d.vara)) + '</span> <span class="sub">' +
+        esc(t("pan.lord_of", { graha: term("planet", d.vara_lord) })) + '</span></div></div>' +
+      limbRow("pan.tithi", d.tithi, tithiName) +
+      limbRow("pan.nakshatra", d.nakshatra, function (r) { return term("nakshatra", r.name); },
+              function (r) { return t("pan.lord_of", { graha: term("planet", r.lord) }); }) +
+      limbRow("pan.yoga", d.yoga, function (r) { return term("yoga", r.name); }) +
+      limbRow("pan.karana", d.karana, function (r) { return term("karana", r.name); }) +
+      limbRow("pan.moon_rasi", d.moon_rasi, function (r) { return term("sign", r.sign); });
+
+    $("kalams").innerHTML = [["pan.rahu", d.rahu_kalam], ["pan.yama", d.yamagandam], ["pan.kuligai", d.kuligai]]
+      .map(function (k) {
+        var on = live(k[1].start, k[1].end);
+        return '<div class="kalam' + (on ? " live" : "") + '"><span class="k">' + esc(t(k[0])) +
+               (on ? '<span class="tag">' + esc(t("pan.now")) + '</span>' : "") +
+               '</span><span class="v">' + span(k[1].start, k[1].end) + '</span></div>';
+      }).join("");
+
+    function horaiRow(h) {
+      var on = live(h.start, h.end);
+      return '<div class="hr' + (on ? " live" : "") + '"><span class="dot" style="background:' +
+             (d.colours[h.lord] || "#888") + '"></span><span class="g">' + esc(term("planet", h.lord)) +
+             '</span><span class="v">' + span(h.start, h.end) + '</span></div>';
+    }
+    $("horaiDay").innerHTML = d.horai.filter(function (h) { return !h.night; }).map(horaiRow).join("");
+    $("horaiNight").innerHTML = d.horai.filter(function (h) { return h.night; }).map(horaiRow).join("");
+
+    var deg = Math.floor(d.ayanamsa), mins = Math.round((d.ayanamsa - deg) * 60);
+    if (mins === 60) { deg += 1; mins = 0; }
+    $("foot").textContent = t("pan.note", { ayanamsa: deg + "°" + (mins < 10 ? "0" : "") + mins + "′" }) +
+      " · " + Math.abs(d.lat).toFixed(2) + "°" + (d.lat >= 0 ? "N" : "S") + " " +
+      Math.abs(d.lng).toFixed(2) + "°" + (d.lng >= 0 ? "E" : "W") + " · " + d.tz;
+
+    document.title = t("pan.title") + " · " + term("vara", d.vara) + " " + civilDate(d.date);
+  }
+
+  // ── state in the URL and in localStorage ───────────────────────────────
+  function syncUrl() {
+    var q = new URLSearchParams();
+    if (!following && dateEl.value) q.set("date", dateEl.value);
+    q.set("place", place.place);
+    q.set("lat", String(place.lat));
+    q.set("lng", String(place.lng));
+    q.set("tz", place.tz);
+    if (risingEl.value !== "drik") q.set("rising", risingEl.value);
+    try { history.replaceState(null, "", "/panchang?" + q.toString()); } catch (err) {}
+  }
+  function remember() {
+    try {
+      localStorage.setItem(PLACE_KEY, JSON.stringify({
+        place: place.place, lat: place.lat, lng: place.lng, tz: place.tz, rising: risingEl.value
+      }));
+    } catch (err) {}
+  }
+
+  // ── fetching ───────────────────────────────────────────────────────────
+  function load() {
+    var mine = ++seq;
+    place.tz = tzEl.value;
+    var body = { lat: place.lat, lng: place.lng, tz: place.tz, rising: risingEl.value };
+    if (!following && dateEl.value) body.date = dateEl.value;
+    if (!data) { stateEl.hidden = false; stateEl.className = "state"; stateEl.textContent = t("pan.loading"); }
+    noteEl.classList.remove("err");
+    noteEl.textContent = data ? t("pan.loading") : "";
+    fetch("/panchang-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().then(function (j) {
+        if (!res.ok) throw new Error(j.error || "pan.err_generic");
+        return j;
+      });
+    }).then(function (j) {
+      if (mine !== seq) return;
+      data = j;
+      dateEl.value = j.date;
+      noteEl.textContent = "";
+      stateEl.hidden = true;
+      mainEl.hidden = false;
+      $("panToday").classList.toggle("on", following);
+      render();
+      syncUrl();
+      remember();
+    }).catch(function (err) {
+      if (mine !== seq) return;
+      var key = (err && err.message && err.message.indexOf("pan.") === 0) ? err.message : "pan.err_generic";
+      if (data) {
+        noteEl.classList.add("err");
+        noteEl.textContent = t(key);
+      } else {
+        stateEl.className = "state err";
+        stateEl.textContent = t(key);
+      }
+    });
+  }
+
+  function findPlace() {
+    var q = placeEl.value.trim();
+    if (!q) return;
+    noteEl.classList.remove("err");
+    noteEl.textContent = "…";
+    var body = new URLSearchParams();
+    body.set("place", q);
+    fetch("/geocode", { method: "POST", body: body }).then(function (res) {
+      return res.json().then(function (j) { if (!res.ok) throw new Error(); return j; });
+    }).then(function (j) {
+      place = { place: q, lat: j.lat, lng: j.lng, tz: j.tz || tzEl.value };
+      setZone(place.tz);
+      load();
+    }).catch(function () {
+      noteEl.classList.add("err");
+      noteEl.textContent = t("pan.place_err");
+      if (!data) { placeEl.value = place.place; load(); }
+    });
+  }
+
+  function shiftDay(n) {
+    var base = dateEl.value || (data && data.date);
+    if (!base) return;
+    var p = base.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+    dateEl.value = d.toISOString().slice(0, 10);
+    following = false;
+    load();
+  }
+
+  $("panPrev").addEventListener("click", function () { shiftDay(-1); });
+  $("panNext").addEventListener("click", function () { shiftDay(1); });
+  $("panToday").addEventListener("click", function () { following = true; load(); });
+  dateEl.addEventListener("change", function () { if (dateEl.value) { following = false; load(); } });
+  $("panFind").addEventListener("click", findPlace);
+  placeEl.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); findPlace(); } });
+  tzEl.addEventListener("change", load);
+  risingEl.addEventListener("change", load);
+  $("panShare").addEventListener("click", function () {
+    var done = function () { noteEl.classList.remove("err"); noteEl.textContent = t("pan.copied"); };
+    try { navigator.clipboard.writeText(location.href).then(done, function () {}); } catch (err) {}
+  });
+
+  I18N.onChange(function () { render(); });
+
+  // What is running now moves on by itself; and a page following today
+  // turns over to the next day at the next sunrise, not at midnight.
+  setInterval(function () {
+    if (!data) return;
+    if (following && Date.now() >= ms(data.next_sunrise)) load();
+    else render();
+  }, 30000);
+
+  // ── boot: query string, then the last place used here, then Chennai ───
+  (function boot() {
+    var q = new URLSearchParams(location.search);
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PLACE_KEY) || "null"); } catch (err) {}
+    var lat = parseFloat(q.get("lat")), lng = parseFloat(q.get("lng"));
+    if (q.get("rising") === "hindu" || q.get("rising") === "drik") risingEl.value = q.get("rising");
+    else if (saved && (saved.rising === "hindu" || saved.rising === "drik")) risingEl.value = saved.rising;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.get("date") || "")) { dateEl.value = q.get("date"); following = false; }
+
+    if (!isNaN(lat) && !isNaN(lng)) {
+      place = { place: q.get("place") || "", lat: lat, lng: lng, tz: q.get("tz") || DEFAULT_PLACE.tz };
+    } else if (q.get("place")) {
+      // A bare ?place= is looked up; until it answers, fall back as usual.
+      place = Object.assign({}, saved || DEFAULT_PLACE);
+      placeEl.value = q.get("place");
+      setZone(place.tz);
+      findPlace();
+      return;
+    } else {
+      place = Object.assign({}, saved || DEFAULT_PLACE);
+    }
+    placeEl.value = place.place;
+    setZone(place.tz);
+    load();
+  })();
+})();
+</script>
+</body>
+</html>
