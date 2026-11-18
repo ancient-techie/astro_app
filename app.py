@@ -2834,6 +2834,101 @@ PAGE_TEMPLATE = """
   .detail-line em { color: var(--muted); font-style: normal; font-size: 11px; }
   .muted-line { color: var(--muted); font-size: 12px; }
 
+  /* ── Sade Sati ──────────────────────────────────────────────────────
+     One life as a bar, birth at the left edge and 100 at the right, so a
+     vakri pause shows as the gap it is rather than being smoothed over.
+     The phases deepen toward the peak; the two Panotis share a cooler hue
+     so they never read as part of a Sade Sati. */
+  .ss-box { display: flex; flex-direction: column; gap: 14px; }
+  .ss-rising      { --ss: #e3b65c; }
+  .ss-peak        { --ss: #e0703a; }
+  .ss-setting     { --ss: #b98a5e; }
+  .ss-ardhashtama { --ss: #8d82d4; }
+  .ss-ashtama     { --ss: #c46aa0; }
+  .ss-clear       { --ss: #6fae7f; }
+  .ss-chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--ss);
+    color: var(--text);
+    background: color-mix(in srgb, var(--ss) 22%, transparent);
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .ss-dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 2px;
+    background: var(--ss);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .ss-timeline { padding-top: 16px; }
+  .ss-lanes { position: relative; }
+  .ss-lane-label { font-size: 11px; color: var(--muted); margin: 6px 0 3px; }
+  .ss-track {
+    position: relative;
+    height: 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .ss-seg { position: absolute; top: 0; bottom: 0; min-width: 1px; background: var(--ss); }
+  .ss-seg.is-now { box-shadow: inset 0 0 0 2px var(--text); }
+  .ss-today {
+    position: absolute;
+    top: -14px; bottom: -4px;
+    width: 0;
+    border-left: 2px solid var(--text);
+    pointer-events: none;
+  }
+  .ss-today b {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translateX(-50%);
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--text);
+    background: var(--surface);
+    padding: 0 3px;
+  }
+  .ss-axis { position: relative; height: 28px; margin-top: 4px; }
+  .ss-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center;
+    font-size: 10px; line-height: 1.25;
+    color: var(--muted);
+  }
+  .ss-tick:first-child { transform: none; align-items: flex-start; }
+  .ss-tick:last-child { transform: translateX(-100%); align-items: flex-end; }
+  .ss-tick b { color: var(--text); font-weight: 700; }
+  .ss-tick i { font-style: normal; font-size: 9px; }
+  @media (max-width: 520px) {
+    .ss-tick:nth-child(even) i { visibility: hidden; }
+  }
+  .ss-axis-cap { font-size: 10.5px; color: var(--muted); text-align: center; }
+  .ss-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+  .ss-now .detail-line .dl-label { min-width: 132px; padding-right: 8px; }
+  .ss-cycles .planet-block { flex-basis: 300px; }
+  .ss-cycles .planet-block .detail-line .dl-label { min-width: 118px; }
+  .ss-dates { white-space: nowrap; }
+  .ss-panoti td, .ss-panoti th { padding-left: 8px; padding-right: 8px; }
+  .ss-cycles .planet-block.is-now { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+  .ss-cycles .planet-block.is-past, .ss-panoti tr.is-past { opacity: 0.62; }
+  .ss-line-now { font-weight: 700; }
+  .ss-panoti tr.ss-row-now td { font-weight: 700; color: var(--primary-2); }
+  .ss-vakri { color: var(--muted); font-size: 10.5px; }
+  @media (max-width: 520px) {
+    .ss-panoti .ss-dates { white-space: normal; }
+    .ss-vakri { display: block; }
+  }
+
   /* 3-7-11 (marriage) box */
   .m-caption { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
   .m-links { margin: 0; padding-left: 18px; }
@@ -3142,8 +3237,7 @@ PAGE_TEMPLATE = """
       </div>
       <small class="hint" data-i18n="dasha.footnote">
         Computed with the standard Vimshottari algorithm (120-year cycle, 9 planetary
-        lords) based on the Moon's Nakshatra at birth. Not provided by Kerykeion or
-        jyotichart directly - neither library computes Nakshatra or Dasha.
+        lords) based on the Moon's Nakshatra at birth.
       </small>
 
       <div class="section-title"><span data-i18n="section.houses">Houses Involved</span></div>
@@ -3197,6 +3291,92 @@ PAGE_TEMPLATE = """
            from the table's rows, which are truncated to whole days. -->
       <script id="dashaClockSeed" type="application/json">{{ dasha_clock_json | safe }}</script>
       {{ dasha_clock | safe }}
+
+      {% if sade_sati %}{% set ss = sade_sati %}
+      <div class="section-title"><span data-i18n="section.sade_sati">Sade Sati (Ezharai Sani)</span></div>
+      <small class="hint" data-i18n="ss.hint">
+        Saturn's gochar counted from the natal Moon's rasi. Sade Sati runs while
+        Saturn passes the 12th, 1st and 2nd rasis from the Moon - rising, peak
+        and setting. Small Panoti is Saturn in the 4th (Ardhashtama) or 8th
+        (Ashtama). Vakri Saturn can step back over a rasi boundary, so a phase
+        may begin, pause and resume - every crossing is shown. Covers the first
+        100 years from birth.
+      </small>
+      <div class="houses-box ss-box">
+        <div class="ss-now">
+          <div class="detail-line"><span class="dl-label" data-i18n="ss.moon_label">Janma rasi</span><span data-i18n-term="sign:{{ ss.moon_sign }}">{{ ss.moon_sign }}</span></div>
+          <div class="detail-line"><span class="dl-label" data-i18n="ss.today_label">Today</span>
+            {% if ss.current %}<span class="ss-chip ss-{{ ss.current.key }}" data-i18n="ss.ph_{{ ss.current.key }}">{{ t('ss.ph_' ~ ss.current.key) }}</span>
+            {% else %}<span class="ss-chip ss-clear" data-i18n="ss.clear">Free of Sade Sati and Panoti</span>{% endif %}
+          </div>
+          {% if ss.current %}
+          <div class="detail-line"><span class="dl-label" data-i18n="ss.phase_ends">This phase ends</span>{{ ss.current.phase_end }}</div>
+          {% endif %}
+          {% if ss.episode_now and ss.episode_now.end != (ss.current.phase_end if ss.current else '') %}
+          <div class="detail-line"><span class="dl-label" data-i18n="ss.episode_ends">Wholly over</span>{{ ss.episode_now.end }}</div>
+          {% endif %}
+          {% if ss.next %}
+          <div class="detail-line"><span class="dl-label" data-i18n="ss.next_label">Next</span><span data-i18n="ss.grp_{{ ss.next.group }}">{{ t('ss.grp_' ~ ss.next.group) }}</span> &middot; {{ ss.next.start }} (<span data-i18n="ss.age">age</span> {{ ss.next.start_age }})</div>
+          {% endif %}
+        </div>
+
+        <div class="ss-timeline">
+          <div class="ss-lanes">
+            <div class="ss-lane-label" data-i18n="ss.grp_sade_sati">Sade Sati</div>
+            <div class="ss-track">
+              {% for c in ss.cycles %}{% for s in c.segments %}<span class="ss-seg ss-{{ s.key }}{% if s.is_current %} is-now{% endif %}" style="left:{{ s.left }}%;width:{{ s.width }}%"></span>{% endfor %}{% endfor %}
+            </div>
+            <div class="ss-lane-label" data-i18n="ss.lane_panoti">Small Panoti (4th / 8th)</div>
+            <div class="ss-track">
+              {% for p in ss.panoti %}{% for s in p.segments %}<span class="ss-seg ss-{{ s.key }}{% if s.is_current %} is-now{% endif %}" style="left:{{ s.left }}%;width:{{ s.width }}%"></span>{% endfor %}{% endfor %}
+            </div>
+            {% if ss.now_pct is not none %}<span class="ss-today" style="left:{{ ss.now_pct }}%"><b data-i18n="ss.today_label">Today</b></span>{% endif %}
+          </div>
+          <div class="ss-axis">
+            {% for tk in ss.ticks %}<span class="ss-tick" style="left:{{ tk.left }}%"><b>{{ tk.age }}</b><i>{{ tk.year }}</i></span>{% endfor %}
+          </div>
+          <div class="ss-axis-cap" data-i18n="ss.axis">Age (and year)</div>
+          <div class="ss-legend">
+            {% for k in ['rising', 'peak', 'setting', 'ardhashtama', 'ashtama'] %}
+            <span><i class="ss-dot ss-{{ k }}"></i><span data-i18n="ss.short_{{ k }}">{{ t('ss.short_' ~ k) }}</span></span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="houses-box-row ss-cycles">
+          {% for c in ss.cycles %}
+          <div class="planet-block{% if c.is_current %} is-now{% elif c.is_past %} is-past{% endif %}">
+            <div class="planet-name"><span data-i18n="ss.grp_sade_sati">Sade Sati</span> {{ c.n }}</div>
+            <div class="muted-line">{{ c.start }} &rarr; {{ c.end }} &middot; <span data-i18n="ss.age">age</span> {{ c.start_age }}&ndash;{{ c.end_age }}{% if c.from_birth %} &middot; <span data-i18n="ss.from_birth">under way at birth</span>{% endif %}{% if c.to_end %} &middot; <span data-i18n="ss.past_end">runs past 100</span>{% endif %}</div>
+            {% for s in c.segments %}
+            <div class="detail-line{% if s.is_current %} ss-line-now{% endif %}"><span class="dl-label"><i class="ss-dot ss-{{ s.key }}"></i><span data-i18n="ss.short_{{ s.key }}">{{ t('ss.short_' ~ s.key) }}</span></span><span class="ss-dates">{{ s.start }} &rarr; {{ s.end }}</span></div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if ss.panoti %}
+        <div class="table-wrap ss-panoti">
+          <table>
+            <thead><tr>
+              <th data-i18n="ss.th_kind">Small Panoti</th>
+              <th data-i18n="ss.th_dates">Dates</th>
+              <th data-i18n="ss.age">age</th>
+            </tr></thead>
+            <tbody>
+              {% for p in ss.panoti %}
+              <tr class="{% if p.is_current %}ss-row-now{% elif p.is_past %}is-past{% endif %}">
+                <td><i class="ss-dot ss-{{ p.group }}"></i><span data-i18n="ss.short_{{ p.group }}">{{ t('ss.short_' ~ p.group) }}</span>{% if p.segments|length > 1 %} <small class="ss-vakri" data-i18n="ss.interrupted">vakri break</small>{% endif %}</td>
+                <td class="ss-dates">{{ p.start }} &rarr; {{ p.end }}</td>
+                <td>{{ p.start_age }}&ndash;{{ p.end_age }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
 
       <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span></div>
       <small class="hint" data-i18n="marriage.hint">
@@ -5733,6 +5913,7 @@ def build_chart_context(form):
         "playground_url": build_playground_url(subject),
         "natal_positions_json": json.dumps(build_rashi_positions(subject)),
         "dasha_clock_json": json.dumps(dasha_clock_seed(subject)),
+        "sade_sati": build_sade_sati(subject, form["tz"]),
     }
 
 
@@ -5759,6 +5940,7 @@ def generate():
             natal_positions_json=ctx["natal_positions_json"],
             strength_panel=STRENGTH_PANEL_HTML,
             dasha_clock_json=ctx["dasha_clock_json"], dasha_clock=DASHA_CLOCK_HTML,
+            sade_sati=ctx["sade_sati"],
         )
 
     except Exception as e:
@@ -5982,6 +6164,232 @@ def _sky_frames_locked(start, step_minutes, count):
         frame["Ketu"] = [round((rahu_lon + 180.0) % 360.0, 4), round(rahu_spd, 5)]
         frames.append(frame)
     return frames
+
+
+# ---------------------------------------------------------------------------
+# Sade Sati (Ezharai Sani) and Small Panoti
+# ---------------------------------------------------------------------------
+# Saturn's rasi counted from the natal Moon's: 12th, 1st, 2nd are the rising,
+# peak and setting of Sade Sati; 4th (Ardhashtama) and 8th (Ashtama) are the
+# two Small Panotis. Each is a run of dates between Saturn's rasi changes, so
+# the whole feature reduces to finding every one of those changes in a life.
+#
+# Saturn can cross the same boundary three times in a year (direct, vakri,
+# direct again), so a lookup of "the date Saturn enters X" would be wrong -
+# every crossing has to be found. It never moves faster than ~0.14 deg a day,
+# so a 30-day scan cannot step over a crossing except near a station, where a
+# vakri dip could cross and come back between two samples; any step holding a
+# station near a boundary is rescanned a day at a time. Each crossing is then
+# pinned to under a minute by Newton on the boundary, using the speed Swiss
+# Ephemeris returns with the longitude, kept inside its bracket. Checked
+# against a brute-force quarter-day scan over random hundred-year lives.
+
+SADE_SATI_YEARS = 100
+_SS_STEP_DAYS = 30.0
+_SS_FINE_DAYS = 1.0
+_SS_NEAR_DEG = 1.5
+
+SADE_SATI_PHASES = {12: "rising", 1: "peak", 2: "setting"}
+PANOTI_KINDS = {4: "ardhashtama", 8: "ashtama"}
+
+# Retrograde dips back into the previous rasi last months, while a whole
+# Saturn round is 29.5 years, so any gap shorter than this joins two stretches
+# into one episode and anything longer is a different one.
+_SS_JOIN_DAYS = 3 * 365.25
+
+
+def _saturn_lon_speed(jd):
+    pos = _swe.calc_ut(jd, _swe.SATURN, _SKY_FLAGS)[0]
+    return pos[0], pos[3]
+
+
+def _saturn_rasi(jd):
+    return int(_saturn_lon_speed(jd)[0] // 30) % 12
+
+
+def _saturn_crossings(jd0, jd1):
+    """[(jd, rasi index entered)] for every rasi change of Saturn in
+    [jd0, jd1], in order. Caller holds SWE_LOCK."""
+    _swe.set_ephe_path(_SKY_EPHE_PATH)
+    _swe.set_sid_mode(_swe.SIDM_LAHIRI)
+
+    def pin(a, b, ra, ru):
+        # The boundary is the start of whichever rasi is later in the zodiac:
+        # ru's going direct, ra's going vakri.
+        edge = 30.0 * (ru if (ru - ra) % 12 == 1 else ra)
+        t = (a + b) / 2
+        while b - a > 1.0 / 1440:
+            lon, spd = _saturn_lon_speed(t)
+            if int(lon // 30) % 12 == ra:
+                a = t
+            else:
+                b = t
+            off = (lon - edge + 180.0) % 360.0 - 180.0
+            nt = t - off / spd if abs(spd) > 1e-4 else None
+            if nt is None or not (a < nt < b):
+                nt = (a + b) / 2
+            if abs(nt - t) < 1.0 / 1440 / 4:
+                return nt
+            t = nt
+        return b
+
+    def scan(a, b, step, coarse):
+        out = []
+        lon, spd = _saturn_lon_speed(a)
+        ra = int(lon // 30) % 12
+        t = a
+        while t < b:
+            u = min(t + step, b)
+            lon_u, spd_u = _saturn_lon_speed(u)
+            ru = int(lon_u // 30) % 12
+            # Across a step holding a station Saturn moves well under
+            # _SS_NEAR_DEG, so a station further than that from a boundary
+            # cannot hide a dip.
+            near = min(lon % 30, 30 - lon % 30, lon_u % 30, 30 - lon_u % 30) < _SS_NEAR_DEG
+            if coarse and (spd > 0) != (spd_u > 0) and near:
+                out.extend(scan(t, u, _SS_FINE_DAYS, False))
+            elif ru != ra:
+                out.append((pin(t, u, ra, ru), ru))
+            t, ra, lon, spd = u, ru, lon_u, spd_u
+        return out
+
+    return scan(jd0, jd1, _SS_STEP_DAYS, True)
+
+
+def _jd_to_local(jd, tz):
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tzu
+    utc = _dt(2000, 1, 1, 12, tzinfo=_tzu.utc) + _td(days=jd - 2451545.0)
+    return utc.astimezone(tz)
+
+
+def build_sade_sati(subject, tz_str, now=None):
+    """Sade Sati cycles and Small Panotis across the native's first
+    SADE_SATI_YEARS, plus where today falls among them.
+
+    Dates are calendar dates in the birth timezone, like the dasha table's.
+    """
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = ZoneInfo("UTC")
+
+    jd_birth = subject.julian_day
+    jd_end = jd_birth + SADE_SATI_YEARS * 365.25
+    moon_idx = SIGN_ORDER.index(subject.moon["sign"])
+
+    with SWE_LOCK:
+        crossings = _saturn_crossings(jd_birth, jd_end)
+        _swe.set_sid_mode(_swe.SIDM_LAHIRI)
+        first_rasi = _saturn_rasi(jd_birth)
+
+    # Saturn's whole life as (start jd, end jd, house from Moon) stretches.
+    stretches = []
+    t, rasi = jd_birth, first_rasi
+    for jd, entered in crossings + [(jd_end, None)]:
+        stretches.append((t, jd, (rasi - moon_idx) % 12 + 1))
+        t, rasi = jd, entered
+
+    now_utc = (now or _dt.now(tz)).astimezone(ZoneInfo("UTC"))
+    jd_now = _swe.julday(now_utc.year, now_utc.month, now_utc.day,
+                         now_utc.hour + now_utc.minute / 60.0)
+    span = jd_end - jd_birth
+
+    def date_of(jd):
+        return _jd_to_local(jd, tz).strftime("%Y-%m-%d")
+
+    def age_of(jd):
+        return round((jd - jd_birth) / 365.25, 1)
+
+    def pct(jd):
+        return round(100.0 * (jd - jd_birth) / span, 3)
+
+    def segment(a, b, key):
+        return {
+            "key": key, "start": date_of(a), "end": date_of(b),
+            "left": pct(a), "width": max(pct(b) - pct(a), 0.15),
+            "is_current": a <= jd_now < b,
+            "_a": a, "_b": b,
+        }
+
+    def group_of(house):
+        return "sade_sati" if house in SADE_SATI_PHASES else PANOTI_KINDS[house]
+
+    def episodes(key_of):
+        """Group the stretches key_of names into episodes, joining across the
+        short gaps a vakri dip leaves - but never Ashtama into Ardhashtama."""
+        groups = []
+        for a, b, house in stretches:
+            key = key_of.get(house)
+            if key is None:
+                continue
+            seg = segment(a, b, key)
+            g = groups[-1] if groups else None
+            if g and g["group"] == group_of(house) and a - g["_b"] < _SS_JOIN_DAYS:
+                g["segments"].append(seg)
+                g["_b"] = b
+            else:
+                groups.append({"group": group_of(house), "_a": a, "_b": b,
+                               "segments": [seg]})
+        return groups
+
+    def finish(g):
+        a, b = g.pop("_a"), g.pop("_b")
+        g.update({
+            "start": date_of(a), "end": date_of(b),
+            "start_age": age_of(a), "end_age": age_of(b),
+            "from_birth": a <= jd_birth, "to_end": b >= jd_end,
+            "is_current": a <= jd_now < b, "is_past": b <= jd_now,
+            "left": pct(a), "width": pct(b) - pct(a),
+        })
+        for s in g["segments"]:
+            s.pop("_a"), s.pop("_b")
+        return g
+
+    cycles = [finish(g) for g in episodes(SADE_SATI_PHASES)]
+    panoti = [finish(g) for g in episodes(PANOTI_KINDS)]
+    for i, c in enumerate(cycles, 1):
+        c["n"] = i
+
+    # Today, and whatever comes next.
+    current = None
+    for a, b, house in stretches:
+        if a <= jd_now < b:
+            key = SADE_SATI_PHASES.get(house) or PANOTI_KINDS.get(house)
+            if key:
+                current = {"key": key, "group": group_of(house),
+                           "phase_end": date_of(b), "house": house}
+            break
+    upcoming = sorted(
+        [e for e in cycles + panoti if not e["is_past"] and not e["is_current"]],
+        key=lambda e: e["start"])
+    nxt = None
+    if upcoming:
+        e = upcoming[0]
+        nxt = {"group": e["group"], "start": e["start"], "start_age": e["start_age"]}
+    episode_now = next((e for e in cycles + panoti if e["is_current"]), None)
+
+    # Decade ticks along the age axis.
+    ticks = []
+    for age in range(0, SADE_SATI_YEARS + 1, 10):
+        jd = jd_birth + age * 365.25
+        ticks.append({"age": age, "year": _jd_to_local(jd, tz).year, "left": pct(jd)})
+
+    return {
+        # Full names, spelt as SIGN_NAME_MAP spells them - the `sign` terms
+        # are keyed on those.
+        "moon_sign": SIGN_NAME_MAP[subject.moon["sign"]],
+        "saturn_sign": SIGN_NAME_MAP[SIGN_ORDER[first_rasi]],
+        "cycles": cycles,
+        "panoti": panoti,
+        "current": current,
+        "episode_now": episode_now,
+        "next": nxt,
+        "now_pct": pct(jd_now) if jd_birth <= jd_now <= jd_end else None,
+        "ticks": ticks,
+        "crossings": len(crossings),
+    }
 
 
 @app.route("/sky-positions", methods=["POST"])
