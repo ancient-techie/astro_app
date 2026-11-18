@@ -58,6 +58,7 @@ import db as storage
 import i18n
 import porutham
 import jathagam
+import panchang
 
 try:
     from geopy.geocoders import Nominatim
@@ -65,6 +66,19 @@ try:
 except ImportError:  # geopy is optional - without it the app just loses lookup
     Nominatim = None
     GeocoderServiceError = GeocoderTimedOut = Exception
+
+# Coordinates to an IANA zone, offline. Optional for the same reason: without
+# it /geocode still answers, and the pages that need a zone let it be picked.
+try:
+    from timezonefinder import TimezoneFinder
+    _tzfinder = TimezoneFinder()
+except Exception:
+    _tzfinder = None
+
+
+def _tz_at(lat, lng):
+    if _tzfinder is None:
+        return None
 
 try:
     import chart_pdf
@@ -129,6 +143,9 @@ def geocode():
         "lat": round(location.latitude, 6),
         "lng": round(location.longitude, 6),
         "address": location.address,
+        # The panchangam needs the place's own clock as much as its position:
+        # sunrise in Chennai means nothing read in another zone.
+        "tz": _tz_at(location.latitude, location.longitude),
     })
 
 
@@ -204,11 +221,12 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v16";
+const CACHE_NAME = "vedic-chart-v17";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
   "/sky",
+  "/panchang",
   "/i18n.js",
   "/manifest.json",
   "/icon-192.png",
@@ -776,6 +794,14 @@ _SKY_SIM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sky_si
 with open(_SKY_SIM_PATH, "r", encoding="utf-8") as _f:
     SKY_SIM_HTML = _f.read()
 
+# The daily panchangam page. Same escape hatch: its own file, served
+# verbatim at /panchang, asking /panchang-data for the day. Its query string
+# (?date=&place=&lat=&lng=&tz=) is read by the page itself, so a link to one
+# day at one place survives being shared.
+_PANCHANG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panchang.html")
+with open(_PANCHANG_PATH, "r", encoding="utf-8") as _f:
+    PANCHANG_HTML = _f.read()
+
 
 @app.route("/play-with-chart")
 def play_with_chart():
@@ -785,6 +811,11 @@ def play_with_chart():
 @app.route("/sky")
 def sky_page():
     return Response(SKY_SIM_HTML, mimetype="text/html")
+
+
+@app.route("/panchang")
+def panchang_page():
+    return Response(PANCHANG_HTML, mimetype="text/html")
 
 
 @app.route("/icon-192.png")
@@ -2929,6 +2960,7 @@ PAGE_TEMPLATE = """
   {{ lang_switch | safe }}
   <a class="porutham-btn" href="/porutham">&#128142; <span data-i18n="nav.porutham">10 Porutham</span></a>
   <a class="porutham-btn" href="/sky">&#129680; <span data-i18n="sky.open">Sky</span></a>
+  <a class="porutham-btn" href="/panchang">&#128197; <span data-i18n="pan.open">Panchangam</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
@@ -6037,6 +6069,64 @@ def sky_snapshot():
         "utc": utc.strftime("%Y-%m-%dT%H:%M"),
         "lagna": round(subject.first_house["abs_pos"], 4),
     })
+
+
+# ---------------------------------------------------------------------------
+# Daily panchangam
+# ---------------------------------------------------------------------------
+# The maths is all in panchang.py; this only validates the request, holds the
+# ephemeris lock (panchang.compute sets the sidereal mode and path itself,
+# which Kerykeion would otherwise reset under it) and names the nakshatras
+# from this file's own table.
+
+# Same hues the sky page draws the grahas in, for the horai.
+_PANCHANG_GRAHA_COLOURS = {
+    "Sun": "#FF9900", "Moon": "#E8F0FF", "Mars": "#FF2200", "Mercury": "#00CC33",
+    "Jupiter": "#FFD700", "Venus": "#FFB0C8", "Saturn": "#1144CC",
+}
+
+
+@app.route("/panchang-data", methods=["POST"])
+def panchang_data():
+    """One Hindu day at one place. With no date, the day running now there -
+    which is yesterday's until this morning's sunrise.
+
+    POST for the reason /sky-positions is: the service worker never touches
+    it, so a stale day can never be served from the cache.
+    """
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        lat, lng = float(payload.get("lat")), float(payload.get("lng"))
+        tz = str(payload.get("tz", "")).strip()
+        ZoneInfo(tz)
+        raw_date = str(payload.get("date") or "").strip()
+        day = _dt.strptime(raw_date, "%Y-%m-%d").date() if raw_date else None
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        return jsonify({"error": "pan.err_request"}), 400
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return jsonify({"error": "pan.err_request"}), 400
+    rising = payload.get("rising") if payload.get("rising") in panchang.RISING_FLAGS else panchang.DEFAULT_RISING
+    if day is not None and not (_SKY_MIN_YEAR <= day.year <= _SKY_MAX_YEAR):
+        return jsonify({"error": "pan.err_range"}), 400
+
+    try:
+        with SWE_LOCK:
+            if day is None:
+                day = panchang.vedic_today(lat, lng, tz, rising)
+            result = panchang.compute(day, lat, lng, tz, rising)
+    except panchang.PanchangError as e:
+        return jsonify({"error": str(e)}), 422
+    except Exception as e:
+        return jsonify({"error": "pan.err_generic", "detail": str(e)}), 500
+
+    for row in result["nakshatra"]:
+        row["name"] = NAKSHATRA_NAMES[row["index"]]
+        row["lord"] = NAKSHATRA_LORDS[row["index"]]
+    result["colours"] = _PANCHANG_GRAHA_COLOURS
+    return jsonify(result)
 
 
 def _pdf_content_disposition(name):
