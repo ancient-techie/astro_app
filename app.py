@@ -3205,8 +3205,7 @@ PAGE_TEMPLATE = """
       </div>
       <small class="hint" data-i18n="dasha.footnote">
         Computed with the standard Vimshottari algorithm (120-year cycle, 9 planetary
-        lords) based on the Moon's Nakshatra at birth. Not provided by Kerykeion or
-        jyotichart directly - neither library computes Nakshatra or Dasha.
+        lords) based on the Moon's Nakshatra at birth.
       </small>
 
       <div class="section-title"><span data-i18n="section.houses">Houses Involved</span></div>

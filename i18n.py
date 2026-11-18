@@ -584,7 +584,7 @@ _EN = {
     # -- dasha table ---------------------------------------------------------
     "section.dasha": "Vimshottari Mahadasha",
     "dasha.hint": "Tap any row to expand its sub-periods (Antardasha → Pratyantardasha → Sookshma Dasha). Tap again to collapse.",
-    "dasha.footnote": "Computed with the standard Vimshottari algorithm (120-year cycle, 9 planetary lords) based on the Moon's Nakshatra at birth. Not provided by Kerykeion or jyotichart directly – neither library computes Nakshatra or Dasha.",
+    "dasha.footnote": "Computed with the standard Vimshottari algorithm (120-year cycle, 9 planetary lords) based on the Moon's Nakshatra at birth.",
     "th.lord": "Lord",
     "th.start": "Start",
     "th.end": "End",
@@ -1372,7 +1372,7 @@ _TA = {
     # -- dasha table ---------------------------------------------------------
     "section.dasha": "விம்சோத்தரி மகா தசை",
     "dasha.hint": "எந்த வரிசையையும் தட்டினால் அதன் உட்காலங்கள் விரியும் (புக்தி → அந்தரம் → சூட்சுமம்). மீண்டும் தட்டினால் மூடும்.",
-    "dasha.footnote": "பிறப்பின் சந்திர நட்சத்திரத்தை அடிப்படையாகக் கொண்ட நிலையான விம்சோத்தரி முறை (120 ஆண்டு சுழற்சி, 9 கிரக அதிபதிகள்) பயன்படுத்திக் கணக்கிடப்பட்டது. Kerykeion அல்லது jyotichart இதைத் தருவதில்லை.",
+    "dasha.footnote": "பிறப்பின் சந்திர நட்சத்திரத்தை அடிப்படையாகக் கொண்ட நிலையான விம்சோத்தரி முறை (120 ஆண்டு சுழற்சி, 9 கிரக அதிபதிகள்) பயன்படுத்திக் கணக்கிடப்பட்டது.",
     "th.lord": "அதிபதி",
     "th.start": "தொடக்கம்",
     "th.end": "முடிவு",
