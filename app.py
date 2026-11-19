@@ -80,6 +80,10 @@ except Exception:
 def _tz_at(lat, lng):
     if _tzfinder is None:
         return None
+    try:
+        return _tzfinder.timezone_at(lat=lat, lng=lng)
+    except Exception:
+        return None
 
 try:
     import chart_pdf
@@ -807,8 +811,14 @@ with open(_SKY_SIM_PATH, "r", encoding="utf-8") as _f:
 # (?date=&place=&lat=&lng=&tz=) is read by the page itself, so a link to one
 # day at one place survives being shared.
 _PANCHANG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panchang.html")
-with open(_PANCHANG_PATH, "r", encoding="utf-8") as _f:
-    PANCHANG_HTML = _f.read()
+# Tolerate its absence so the rest of the app still starts while the page is
+# being written.
+try:
+    with open(_PANCHANG_PATH, "r", encoding="utf-8") as _f:
+        PANCHANG_HTML = _f.read()
+except FileNotFoundError:
+    print("WARNING: panchang.html not found - /panchang will show a placeholder")
+    PANCHANG_HTML = "<!doctype html><meta charset=utf-8><title>Panchangam</title><p>panchang.html is missing.</p>"
 
 
 @app.route("/play-with-chart")
