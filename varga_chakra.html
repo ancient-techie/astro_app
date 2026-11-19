@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+     Varga Chakra - the sixteen divisional charts of one horoscope, on a page
+     of their own.
+
+     Opened from the results page's "Varga Chakra" button, which re-posts the
+     birth details to /varga-chakra exactly as the PDF button re-posts them to
+     /download-pdf - nothing is kept on the server. The route fills two
+     placeholders below: the birth details themselves, and every point's rasi
+     in all sixteen vargas (a lookup per cell, so it costs nothing to send).
+
+     The charts are drawn by /varga, one varga at a time as the reader picks
+     it, and kept for the visit. Drawing all sixteen up front would be fast
+     enough, but would send 64 SVGs most readers never look at.
+
+     Its own file for the usual reason: Jinja never sees it, so the template
+     literals below arrive intact. Restart the server by hand after editing.
+     =========================================================================== -->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title data-i18n="vc.page_title">Varga Chakra - divisional charts</title>
+<script>
+  /* Language and theme onto <html> before the first paint, as every page does. */
+  (function () {
+    try {
+      var lang = window.localStorage.getItem("vedic-chart-lang");
+      if (lang === "en" || lang === "ta") {
+        document.documentElement.setAttribute("data-lang", lang);
+        document.documentElement.setAttribute("lang", lang);
+      }
+      var theme = window.localStorage.getItem("vedic-theme");
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      } else if (theme === "auto" && window.matchMedia
+                 && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (err) {}
+  })();
+</script>
+<script src="/i18n.js"></script>
+<meta name="description" content="The sixteen Shodasavarga divisional charts, D1 to D60, by Parashara's rules.">
+<meta name="theme-color" content="#0b0d17">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --vc-bg: #0f0e1c;
+    --vc-panel: rgba(255, 255, 255, 0.045);
+    --vc-panel-2: rgba(255, 255, 255, 0.08);
+    --vc-border: rgba(212, 175, 55, 0.22);
+    --vc-ink: #e4dac9;
+    --vc-dim: rgba(228, 218, 201, 0.6);
+    --vc-gold: #d4af37;
+    --vc-gold-soft: rgba(212, 175, 55, 0.12);
+    --vc-danger: #ff8877;
+    --vc-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  html[data-theme="light"] {
+    --vc-bg: #f4efe4;
+    --vc-panel: rgba(32, 26, 12, 0.045);
+    --vc-panel-2: rgba(32, 26, 12, 0.08);
+    --vc-border: rgba(140, 110, 30, 0.3);
+    --vc-ink: #2b2415;
+    --vc-dim: rgba(43, 36, 21, 0.62);
+    --vc-gold: #8a6b14;
+    --vc-gold-soft: rgba(160, 125, 25, 0.12);
+    --vc-danger: #b0341c;
+    --vc-shadow: 0 10px 26px rgba(80, 65, 30, 0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--vc-bg);
+    color: var(--vc-ink);
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+  .vc-wrap { max-width: 1100px; margin: 0 auto; }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .vc-top {
+    display: flex;
+    align-items: center;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .vc-top h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.1rem, 4vw, 1.5rem);
+    letter-spacing: 0.1em;
+    color: var(--vc-gold);
+    line-height: 1.2;
+    flex: 1 1 auto;
+  }
+  .vc-link {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1.5px solid var(--vc-border);
+    background: var(--vc-gold-soft);
+    color: var(--vc-gold);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .vc-link:hover { border-color: var(--vc-gold); }
+  .lang-switch {
+    flex-shrink: 0;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1.5px solid var(--vc-border);
+    border-radius: 999px;
+    background: var(--vc-gold-soft);
+  }
+  .lang-switch button {
+    padding: 5px 11px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--vc-dim);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .lang-switch button.active {
+    background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%);
+    color: #1c1710;
+  }
+
+  .vc-who {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .vc-pill {
+    font-size: 12.5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--vc-border);
+    background: var(--vc-panel);
+  }
+  .vc-pill b { color: var(--vc-gold); }
+  .vc-hint {
+    display: block;
+    color: var(--vc-dim);
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 4px 0 10px;
+  }
+  .vc-section {
+    font-family: 'Cinzel', serif;
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    color: var(--vc-gold);
+    margin: 26px 0 4px;
+  }
+
+  /* ── picker ──────────────────────────────────────────────────────────── */
+  .varga-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0 14px;
+  }
+  .varga-chip {
+    background: var(--vc-panel);
+    border: 1px solid var(--vc-border);
+    border-radius: 999px;
+    color: var(--vc-dim);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 6px 11px;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .varga-chip b { font-weight: 700; color: var(--vc-ink); }
+  .varga-chip:hover { border-color: var(--vc-gold); }
+  .varga-chip[aria-pressed="true"] {
+    background: var(--vc-gold-soft);
+    border-color: var(--vc-gold);
+    color: var(--vc-ink);
+  }
+  .varga-about { color: var(--vc-dim); font-size: 13.5px; margin: 0 0 12px; }
+  .varga-about b { color: var(--vc-ink); }
+  .varga-status { color: var(--vc-dim); font-size: 13px; padding: 18px 4px; }
+  .varga-status.is-error { color: var(--vc-danger); }
+
+  /* The charts stay navy on cream in both themes, as on the results page:
+     a rasi chart is a drawing and should look like itself. */
+  .charts-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 680px) { .charts-grid { grid-template-columns: 1fr 1fr; } }
+  .chart-card {
+    background: #efe4c9;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: var(--vc-shadow), 0 0 0 1px rgba(212, 175, 55, 0.2);
+  }
+  .chart-card h3 {
+    margin: 0 0 10px;
+    color: #7a5c10;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .chart-card svg { width: 100%; height: auto; display: block; margin: 0 auto; }
+  .chart-svg[data-lang-svg] { display: none; }
+  html[data-lang="en"] .chart-svg[data-lang-svg="en"],
+  html[data-lang="ta"] .chart-svg[data-lang-svg="ta"] { display: block; }
+
+  /* ── the all-vargas table ────────────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--vc-border);
+    border-radius: 12px;
+    background: var(--vc-panel);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td {
+    padding: 7px 9px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--vc-border);
+  }
+  thead th { color: var(--vc-gold); font-weight: 700; background: var(--vc-panel-2); }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+  tbody th { font-weight: 700; position: sticky; left: 0; background: var(--vc-bg); }
+  tbody th small { display: block; font-weight: 400; color: var(--vc-dim); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td, tbody tr.is-picked td { background: var(--vc-gold-soft); }
+  tbody tr.is-picked th { color: var(--vc-gold); }
+  td.same-as-d1 { color: var(--vc-gold); font-weight: 700; }
+  .vc-legend { display: inline-block; color: var(--vc-gold); font-weight: 700; }
+
+  .vc-empty { padding: 40px 8px; text-align: center; color: var(--vc-dim); }
+  .vc-empty a { color: var(--vc-gold); }
+</style>
+</head>
+<body>
+<div class="vc-wrap">
+
+<header class="vc-top">
+  <h1 data-i18n="vc.title">Varga Chakra</h1>
+  <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  </div>
+  <a class="vc-link" href="/" data-i18n="pg.back">Back to Generator</a>
+</header>
+
+<script id="vargaBirthData" type="application/json">__VARGA_BIRTH__</script>
+<script id="vargaTableData" type="application/json">__VARGA_TABLE__</script>
+
+<main id="vcMain">
+  <div class="vc-who" id="vcWho"></div>
+  <small class="vc-hint" data-i18n="varga.hint">Each rasi is cut into parts, and each part is given a rasi of its own by Parashara's rules.</small>
+
+  <div class="varga-chips" id="vargaChips" role="group" data-i18n-attr="aria-label:varga.picker_label"></div>
+  <div id="vargaBody"></div>
+
+  <h2 class="vc-section" data-i18n="vc.table_title">All sixteen vargas</h2>
+  <small class="vc-hint" data-i18n-html="vc.table_hint">Each graha's rasi in every varga. A rasi in gold is the one it holds in D1 too; in D9 that is Vargottama. Tap a row to draw that varga.</small>
+  <div class="table-wrap"><table id="vcTable"></table></div>
+</main>
+
+<div class="vc-empty" id="vcEmpty" hidden>
+  <p data-i18n="vc.no_birth">Open this page from a generated chart.</p>
+  <p><a href="/" data-i18n="pg.back">Back to Generator</a></p>
+</div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  function readJson(id) {
+    try { return JSON.parse(document.getElementById(id).textContent || "null"); } catch (e) { return null; }
+  }
+  var birth = readJson("vargaBirthData") || {};
+  var table = readJson("vargaTableData");
+  var chipsEl = document.getElementById("vargaChips");
+  var bodyEl = document.getElementById("vargaBody");
+  var tableEl = document.getElementById("vcTable");
+  var whoEl = document.getElementById("vcWho");
+
+  if (!table || !birth.date) {
+    document.getElementById("vcMain").hidden = true;
+    document.getElementById("vcEmpty").hidden = false;
+    return;
+  }
+
+  var DIVISIONS = table.order;   // [1, 2, 3, 4, 7, 9, ... 60]
+  var POINTS = table.points;     // ["Ascendant", "Sun", ... "Ketu"]
+  var cache = {};                // d -> /varga payload
+  var selected = null;           // d on screen
+  var pending = null;            // d being fetched
+  var failed = null;             // { d, key } of the last failed fetch
+
+  function name(d) { return I18N.t("varga.name_" + d); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  function renderWho() {
+    var pills = [`<span class="vc-pill"><b>${esc(birth.name || "")}</b></span>`,
+                 `<span class="vc-pill">${esc(birth.date)} &middot; ${esc(birth.time)}</span>`];
+    if (birth.city) pills.push(`<span class="vc-pill">${esc(birth.city)}</span>`);
+    whoEl.innerHTML = pills.join("");
+  }
+
+  function renderChips() {
+    chipsEl.innerHTML = DIVISIONS.map(function (d) {
+      return `<button type="button" class="varga-chip" data-varga="${d}"
+                aria-pressed="${d === selected}" title="${esc(name(d))}"><b>D${d}</b> ${esc(name(d))}</button>`;
+    }).join("");
+  }
+
+  function renderTable() {
+    var head = `<thead><tr><th>${esc(I18N.t("varga.picker_label"))}</th>` +
+      POINTS.map(function (p) { return `<th>${esc(I18N.term("planet_abbr", p))}</th>`; }).join("") +
+      `</tr></thead>`;
+    var d1 = table.rows["1"];
+    var rows = DIVISIONS.map(function (d) {
+      var row = table.rows[String(d)];
+      var cells = POINTS.map(function (p) {
+        var same = d !== 1 && row[p] === d1[p];
+        return `<td class="${same ? "same-as-d1" : ""}">${esc(I18N.term("sign", row[p]))}</td>`;
+      }).join("");
+      return `<tr data-varga="${d}" class="${d === selected ? "is-picked" : ""}">` +
+        `<th>D${d}<small>${esc(name(d))}</small></th>${cells}</tr>`;
+    }).join("");
+    tableEl.innerHTML = head + `<tbody>${rows}</tbody>`;
+  }
+
+  function setStatus(key, isError) {
+    failed = isError ? { d: selected, key: key } : null;
+    bodyEl.innerHTML = `<div class="varga-status${isError ? " is-error" : ""}"></div>`;
+    bodyEl.firstChild.textContent = I18N.t(key);
+  }
+
+  function renderResult(data) {
+    var d = data.d;
+    var cards = data.charts.map(function (c) {
+      var title = I18N.t(c.style === "north" ? "varga.card_north" : "varga.card_south",
+                         { name: name(d), d: d });
+      var svgs = Object.keys(c.svgs).map(function (code) {
+        return `<div class="chart-svg" data-lang-svg="${code}">${c.svgs[code]}</div>`;
+      }).join("");
+      return `<div class="chart-card"><h3>${esc(title)}</h3>${svgs}</div>`;
+    }).join("");
+    bodyEl.innerHTML =
+      `<p class="varga-about"><b>${esc(name(d))} (D${d})</b> ${esc(I18N.t("varga.about_" + d))}
+         &middot; ${esc(I18N.t("varga.asc", { d: d }))} <b>${esc(I18N.term("sign", data.ascendant))}</b></p>
+       <div class="charts-grid">${cards}</div>`;
+  }
+
+  function show(d) {
+    selected = d;
+    renderChips();
+    renderTable();
+    if (cache[d]) { renderResult(cache[d]); return; }
+    pending = d;
+    setStatus("varga.loading");
+    fetch("/varga", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({}, birth, { d: d })),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || res.body.error) throw new Error(res.body.error || "varga.err_generic");
+        cache[d] = res.body;
+        // A later tap wins: only paint the varga the reader is still asking for.
+        if (selected === d) renderResult(res.body);
+      })
+      .catch(function (err) {
+        if (selected !== d) return;
+        setStatus(/^varga\./.test(err.message) ? err.message : "varga.err_generic", true);
+      })
+      .then(function () { if (pending === d) pending = null; });
+  }
+
+  function pick(e) {
+    var el = e.target.closest("[data-varga]");
+    if (!el) return;
+    var d = Number(el.getAttribute("data-varga"));
+    if (d === selected && (cache[d] || pending === d)) return;
+    show(d);
+    if (el.tagName === "TR") chipsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  chipsEl.addEventListener("click", pick);
+  tableEl.addEventListener("click", pick);
+
+  renderWho();
+  // D9 first: it is the varga read most often after the Rasi chart.
+  show(9);
+
+  // Everything here is built with interpolated values, which I18N.apply()
+  // cannot rebuild - so redraw it on a language switch.
+  I18N.onChange(function () {
+    renderChips();
+    renderTable();
+    if (cache[selected]) renderResult(cache[selected]);
+    else if (pending === selected) setStatus("varga.loading");
+    else if (failed && failed.d === selected) setStatus(failed.key, true);
+  });
+})();
+</script>
+</body>
+</html>
