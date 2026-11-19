@@ -58,6 +58,7 @@ import db as storage
 import i18n
 import porutham
 import jathagam
+import vargas
 import panchang
 
 try:
@@ -784,6 +785,13 @@ _DASHA_CLOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "da
 with open(_DASHA_CLOCK_PATH, "r", encoding="utf-8") as _f:
     DASHA_CLOCK_HTML = _f.read()
 
+# Varga Chakra - the sixteen divisional charts on a page of their own. A
+# standalone file like the sky page, but not quite served verbatim:
+# /varga-chakra fills in two JSON placeholders (see varga_chakra_page).
+_VARGA_CHAKRA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "varga_chakra.html")
+with open(_VARGA_CHAKRA_PATH, "r", encoding="utf-8") as _f:
+    VARGA_CHAKRA_HTML = _f.read()
+
 # The sky simulation - the nine grahas running geocentrically around a
 # sidereal rasi wheel, at their own speeds, with vakri (retrograde) and asta
 # (combustion) visible as they happen. Same escape hatch once more: its own
@@ -984,6 +992,10 @@ def _localize_chart_svg(svg_markup, lang):
         "Chart : Chandra": f"{word} : {i18n.t('chart.chandra', lang)}",
         "Chart : Gochar": f"{word} : {i18n.t('chart.gochar', lang)}",
     }
+    # The other divisional charts, drawn on demand by /varga.
+    for n in vargas.VARGA_NUMBERS:
+        replacements.setdefault(f"Chart : {vargas.varga_name(n)}",
+                                f"{word} : {i18n.t(f'varga.name_{n}', lang)}")
 
     def replace(match):
         content = match.group(2).strip()
@@ -1252,89 +1264,83 @@ def build_gochar_context(form, transit_date, transit_time):
 
 
 # ---------------------------------------------------------------------------
-# Navamsa (D9) divisional chart
+# Divisional (varga) charts, D1 - D60
 # ---------------------------------------------------------------------------
-# Neither Kerykeion nor jyotichart compute divisional (varga) charts -
-# Kerykeion only exposes D1 (Rashi) sign/degree data, and jyotichart is
-# purely an SVG renderer that will happily draw whatever sign/house data
-# it's given. So the D9 sign for each point is derived here from the D1
-# absolute longitude, and then rendered with the same jyotichart renderer
-# used for the Rashi chart.
-
-NAVAMSA_SPAN = 30.0 / 9  # 3°20' - each sign is divided into 9 navamsas
+# Neither Kerykeion nor jyotichart compute divisional charts - Kerykeion only
+# exposes D1 (Rashi) longitudes, and jyotichart draws whatever sign/house data
+# it is given. The division rules live in vargas.py; here each point's D1
+# longitude is handed over and the result drawn with the same renderer as the
+# Rashi chart. D9 is rendered with every chart; all sixteen live on the Varga
+# Chakra page, drawn by /varga one at a time as they are picked. A render is
+# ~2 ms, so that is about page weight - four SVGs a varga - not speed.
 
 
 def navamsa_sign(abs_pos):
-    """Return the D9 (Navamsa) sign abbreviation for a sidereal longitude.
+    """D9 (Navamsa) sign abbreviation for a sidereal longitude."""
+    return vargas.varga_sign(abs_pos, 9)
 
-    Each 30° sign is split into 9 navamsas of 3°20' each. Combining the
-    sign index with the navamsa index via (sign_index * 9 + navamsa_index)
-    % 12 reproduces the classical rule - movable signs' navamsas start
-    from themselves, fixed signs' start from the 9th sign, and dual signs'
-    start from the 5th sign - without needing to branch on sign type.
-    """
-    abs_pos = abs_pos % 360.0
-    sign_index = int(abs_pos // 30)
-    degree_in_sign = abs_pos % 30
-    navamsa_index = int(degree_in_sign // NAVAMSA_SPAN)
-    navamsa_index = min(navamsa_index, 8)  # guard against float rounding right at 30°
-    d9_index = (sign_index * 9 + navamsa_index) % 12
-    return SIGN_ORDER[d9_index]
+
+def chart_longitudes(subject):
+    """Sidereal longitude of the Ascendant and all nine grahas, keyed by the
+    labels used everywhere else ('Ascendant', 'Sun', ... 'Rahu', 'Ketu')."""
+    longitudes = {"Ascendant": subject.first_house["abs_pos"]}
+    for attr, (_, symbol) in PLANETS.items():
+        longitudes[symbol_to_label(symbol)] = getattr(subject, attr)["abs_pos"]
+    rahu_abs_pos = get_rahu_data(subject)["abs_pos"]
+    longitudes["Rahu"] = rahu_abs_pos
+    longitudes["Ketu"] = (rahu_abs_pos + 180.0) % 360.0
+    return longitudes
+
+
+def build_varga_positions(subject, n):
+    """Dn sign for the Ascendant and every graha."""
+    return vargas.varga_positions(chart_longitudes(subject), n)
 
 
 def build_navamsa_positions(subject):
-    """D9 sign for the Ascendant and every graha, keyed by the same planet
-    labels used elsewhere ('Sun', 'Moon', ... 'Rahu', 'Ketu') plus
-    'Ascendant'."""
-    positions = {"Ascendant": navamsa_sign(subject.first_house["abs_pos"])}
-
-    for attr, (_, symbol) in PLANETS.items():
-        label = symbol_to_label(symbol)
-        p = getattr(subject, attr)
-        positions[label] = navamsa_sign(p["abs_pos"])
-
-    rahu_data = get_rahu_data(subject)
-    positions["Rahu"] = navamsa_sign(rahu_data["abs_pos"])
-    ketu_abs_pos = (rahu_data["abs_pos"] + 180.0) % 360.0
-    positions["Ketu"] = navamsa_sign(ketu_abs_pos)
-
-    return positions
+    return build_varga_positions(subject, 9)
 
 
-def render_navamsa_chart_svg(subject, style, output_dir, navamsa_positions,
-                             lang=i18n.DEFAULT_LANGUAGE):
-    """Build a South/North Indian Navamsa (D9) chart with jyotichart, the
-    same way render_chart_svg builds the D1 (Rashi) chart, except house
-    placement comes from each point's D9 sign rather than its D1 sign.
+def render_varga_chart_svg(subject, style, output_dir, positions, n,
+                           lang=i18n.DEFAULT_LANGUAGE):
+    """Build a South/North Indian Dn chart with jyotichart, the same way
+    render_chart_svg builds the D1 (Rashi) chart, except house placement
+    comes from each point's Dn sign rather than its D1 sign.
 
     Retrograde status is a D1 (Rashi) concept and isn't conventionally
     marked on divisional charts, so no retrograde suffix is added here.
     """
-    ascendant_abbr = navamsa_positions["Ascendant"]
+    ascendant_abbr = positions["Ascendant"]
     ascendant_full = SIGN_NAME_MAP[ascendant_abbr]
 
     ChartClass = chart.SouthChart if style == "south" else chart.NorthChart
-    mychart = ChartClass("Navamsa", subject.name, IsFullChart=True)
+    mychart = ChartClass(vargas.varga_name(n), subject.name, IsFullChart=True)
     mychart.set_ascendantsign(ascendant_full)
 
     for attr, (planet_const, symbol) in PLANETS.items():
         label = symbol_to_label(symbol)
-        sign_abbr = navamsa_positions[label]
-        house_num = house_from_signs(sign_abbr, ascendant_abbr)
+        house_num = house_from_signs(positions[label], ascendant_abbr)
         mychart.add_planet(planet_const, i18n.planet_abbr(label, lang), house_num, retrograde=False)
 
-    rahu_house = house_from_signs(navamsa_positions["Rahu"], ascendant_abbr)
+    rahu_house = house_from_signs(positions["Rahu"], ascendant_abbr)
     mychart.add_planet(chart.RAHU, i18n.planet_abbr("Rahu", lang), rahu_house, retrograde=True)
 
-    ketu_house = house_from_signs(navamsa_positions["Ketu"], ascendant_abbr)
+    ketu_house = house_from_signs(positions["Ketu"], ascendant_abbr)
     mychart.add_planet(chart.KETU, i18n.planet_abbr("Ketu", lang), ketu_house, retrograde=True)
 
     mychart.updatechartcfg(aspect=False)
 
-    filename = f"{subject.name.replace(' ', '_')}_{style}indian_navamsa_chart_{lang}"
-    mychart.draw(output_dir, filename)
+    filename = f"{subject.name.replace(' ', '_')}_{style}indian_d{n}_chart_{lang}"
+    status = mychart.draw(output_dir, filename)
+    if status != "Success":
+        raise RuntimeError(f"jyotichart could not draw the D{n} chart: {status}")
 
     return ascendant_full, _localize_chart_svg(_read_chart_svg(output_dir, filename), lang)
+
+
+def render_navamsa_chart_svg(subject, style, output_dir, navamsa_positions,
+                             lang=i18n.DEFAULT_LANGUAGE):
+    return render_varga_chart_svg(subject, style, output_dir, navamsa_positions, 9, lang)
 
 
 # ---------------------------------------------------------------------------
@@ -3154,6 +3160,14 @@ PAGE_TEMPLATE = """
           {% endfor %}
           <input type="hidden" name="lang" value="en" data-lang-field>
           <button type="submit" class="meta-pill pdf-btn">&#11015; <span data-i18n="meta.download_pdf">Download PDF</span></button>
+        </form>
+        <!-- The sixteen divisional charts, on their own page - re-posted the
+             same way as the PDF, so that page needs no session either. -->
+        <form class="pdf-form" method="POST" action="/varga-chakra" target="_blank">
+          {% for field in ['name', 'city', 'date', 'time', 'lat', 'lng', 'tz', 'style'] %}
+            <input type="hidden" name="{{ field }}" value="{{ form[field] }}">
+          {% endfor %}
+          <button type="submit" class="meta-pill pdf-btn">&#10022; <span data-i18n="vc.open">Varga Chakra</span></button>
         </form>
       </div>
 
@@ -5987,6 +6001,103 @@ def gochar():
         # a failure here is almost always the date itself - out of the
         # ephemeris' range, or a day the transit subject can't be built for.
         return jsonify({"error": "gochar.err_generic", "detail": str(e)}), 400
+
+
+def _json_for_script(value):
+    """JSON safe to drop inside a <script type="application/json"> element:
+    a "</" in a name or city must not close the element early."""
+    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+
+@app.route("/varga-chakra", methods=["GET", "POST"])
+def varga_chakra_page():
+    """The Varga Chakra page for the chart the results page re-posted.
+
+    Every point's rasi in all sixteen vargas is filled into the page here -
+    one lookup per cell - and the charts themselves come from /varga as the
+    reader picks them. A plain GET (a refresh, a bookmark) has no birth
+    details, so the page shows its own "open this from a chart" note.
+    """
+    birth, table = None, None
+    if request.method == "POST":
+        form = read_form(request)
+        try:
+            year, month, day = (int(x) for x in form["date"].split("-"))
+            hour, minute = (int(x) for x in form["time"].split(":"))
+            subject = build_vedic_subject(
+                name=form["name"], year=year, month=month, day=day,
+                hour=hour, minute=minute, lat=float(form["lat"]), lng=float(form["lng"]),
+                tz_str=form["tz"], city=form["city"] or "Unknown",
+            )
+            longitudes = chart_longitudes(subject)
+            table = {
+                "order": list(vargas.VARGA_NUMBERS),
+                "points": list(longitudes),
+                "rows": {
+                    str(n): {label: SIGN_NAME_MAP[sign]
+                             for label, sign in vargas.varga_positions(longitudes, n).items()}
+                    for n in vargas.VARGA_NUMBERS
+                },
+            }
+            birth = form
+        except Exception:
+            birth, table = None, None
+
+    html = (VARGA_CHAKRA_HTML
+            .replace("__VARGA_BIRTH__", _json_for_script(birth))
+            .replace("__VARGA_TABLE__", _json_for_script(table)))
+    return Response(html, mimetype="text/html")
+
+
+@app.route("/varga", methods=["POST"])
+def varga():
+    """One divisional chart, drawn on demand for the results page's picker.
+
+    Takes the same birth payload as /gochar - the server-rendered details of
+    the chart on screen, not the live form - plus `d`, the division.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        n = int(payload.get("d", 0))
+    except (TypeError, ValueError):
+        n = 0
+    if n not in vargas.VARGAS:
+        return jsonify({"error": "varga.err_bad_d"}), 400
+
+    form = {
+        field: str(payload.get(field, "")).strip()
+        for field in ("name", "city", "date", "time", "lat", "lng", "tz", "style")
+    }
+    form["name"] = form["name"] or "Chart"
+    styles = ["south", "north"] if form["style"] == "both" else (
+        [form["style"]] if form["style"] in ("south", "north") else ["south"])
+
+    try:
+        year, month, day = (int(x) for x in form["date"].split("-"))
+        hour, minute = (int(x) for x in form["time"].split(":"))
+        subject = build_vedic_subject(
+            name=form["name"], year=year, month=month, day=day,
+            hour=hour, minute=minute, lat=float(form["lat"]), lng=float(form["lng"]),
+            tz_str=form["tz"], city=form["city"] or "Unknown",
+        )
+        positions = build_varga_positions(subject, n)
+        charts = []
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for style in styles:
+                svgs = {}
+                for lang in i18n.LANGUAGES:
+                    _, svgs[lang] = render_varga_chart_svg(subject, style, tmp_dir, positions, n, lang)
+                charts.append({"style": style, "svgs": svgs})
+    except Exception as e:
+        return jsonify({"error": "varga.err_generic", "detail": str(e)}), 400
+
+    return jsonify({
+        "d": n,
+        "ascendant": SIGN_NAME_MAP[positions["Ascendant"]],
+        "positions": positions,
+        "charts": charts,
+    })
 
 
 # The Strength tab scrubs a date across a whole dasha period, so it needs
