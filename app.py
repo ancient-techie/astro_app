@@ -60,6 +60,7 @@ import porutham
 import jathagam
 import vargas
 import panchang
+import muhurtham
 
 try:
     from geopy.geocoders import Nominatim
@@ -226,12 +227,13 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v17";
+const CACHE_NAME = "vedic-chart-v18";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
   "/sky",
   "/panchang",
+  "/muhurtham",
   "/i18n.js",
   "/manifest.json",
   "/icon-192.png",
@@ -819,6 +821,19 @@ try:
 except FileNotFoundError:
     print("WARNING: panchang.html not found - /panchang will show a placeholder")
     PANCHANG_HTML = "<!doctype html><meta charset=utf-8><title>Panchangam</title><p>panchang.html is missing.</p>"
+
+
+# The muhurtham finder. Its own file again, served at /muhurtham; a POST
+# from the results page carries the birth details, which are reduced here to
+# the janma nakshatra and rasi and filled into __MU_JANMA__ - the page needs
+# nothing else of the chart.
+_MUHURTHAM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "muhurtham.html")
+try:
+    with open(_MUHURTHAM_PATH, "r", encoding="utf-8") as _f:
+        MUHURTHAM_HTML = _f.read()
+except FileNotFoundError:
+    print("WARNING: muhurtham.html not found - /muhurtham will show a placeholder")
+    MUHURTHAM_HTML = "<!doctype html><meta charset=utf-8><title>Muhurtham</title><p>muhurtham.html is missing. __MU_JANMA__</p>"
 
 
 @app.route("/play-with-chart")
@@ -3072,6 +3087,7 @@ PAGE_TEMPLATE = """
   <a class="porutham-btn" href="/porutham">&#128142; <span data-i18n="nav.porutham">10 Porutham</span></a>
   <a class="porutham-btn" href="/sky">&#129680; <span data-i18n="sky.open">Sky</span></a>
   <a class="porutham-btn" href="/panchang">&#128197; <span data-i18n="pan.open">Panchangam</span></a>
+  <a class="porutham-btn" href="/muhurtham">&#10047; <span data-i18n="mu.open">Muhurtham</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
@@ -3178,6 +3194,14 @@ PAGE_TEMPLATE = """
             <input type="hidden" name="{{ field }}" value="{{ form[field] }}">
           {% endfor %}
           <button type="submit" class="meta-pill pdf-btn">&#10022; <span data-i18n="vc.open">Varga Chakra</span></button>
+        </form>
+        <!-- The muhurtham finder, re-posted the same way; that page keeps
+             only the janma star and rasi out of it. -->
+        <form class="pdf-form" method="POST" action="/muhurtham" target="_blank">
+          {% for field in ['name', 'city', 'date', 'time', 'lat', 'lng', 'tz', 'style'] %}
+            <input type="hidden" name="{{ field }}" value="{{ form[field] }}">
+          {% endfor %}
+          <button type="submit" class="meta-pill pdf-btn">&#10047; <span data-i18n="mu.open">Muhurtham</span></button>
         </form>
       </div>
 
@@ -6655,6 +6679,100 @@ def panchang_data():
         row["name"] = NAKSHATRA_NAMES[row["index"]]
         row["lord"] = NAKSHATRA_LORDS[row["index"]]
     result["colours"] = _PANCHANG_GRAHA_COLOURS
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Muhurtham finder
+# ---------------------------------------------------------------------------
+# The rules are all in muhurtham.py and the days all come from
+# panchang.compute; this reads the request, walks the range one day at a
+# time and hands the days over. The lock is taken per day, not for the
+# whole range, so a three-month search (~0.6 s) never holds up a chart.
+
+_MUHURTHAM_MAX_DAYS = 92
+
+
+def _janma_from_birth(form):
+    """The janma nakshatra (0..26) and Moon rasi (0..11) of a birth."""
+    year, month, day = (int(x) for x in form["date"].split("-"))
+    hour, minute = (int(x) for x in form["time"].split(":"))
+    subject = build_vedic_subject(
+        name=form.get("name") or "X", year=year, month=month, day=day,
+        hour=hour, minute=minute, lat=float(form["lat"]), lng=float(form["lng"]),
+        tz_str=form["tz"], city=form.get("city") or "Unknown",
+    )
+    moon = subject.moon["abs_pos"] % 360.0
+    return {"nakshatra": int(moon // NAKSHATRA_SPAN), "rasi": int(moon // 30.0)}
+
+
+@app.route("/muhurtham", methods=["GET", "POST"])
+def muhurtham_page():
+    """The finder. A POST from the results page brings the birth details,
+    reduced here to the janma star and rasi; a GET leaves the page to ask."""
+    janma = None
+    if request.method == "POST":
+        form = read_form(request)
+        try:
+            janma = _janma_from_birth(form)
+            janma["name"] = form.get("name") or ""
+            janma["city"], janma["lat"], janma["lng"], janma["tz"] = (
+                form.get("city") or "", float(form["lat"]), float(form["lng"]), form["tz"])
+        except Exception:
+            janma = None
+    return Response(MUHURTHAM_HTML.replace("__MU_JANMA__", _json_for_script(janma)),
+                    mimetype="text/html")
+
+
+@app.route("/muhurtham-data", methods=["POST"])
+def muhurtham_data():
+    """Every day from `start` to `end` at one place, judged for `event`
+    against the janma star and rasi, with the best three picked out.
+
+    POST, like /panchang-data, so the service worker never caches it.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        lat, lng = float(payload.get("lat")), float(payload.get("lng"))
+        tz = str(payload.get("tz", "")).strip()
+        ZoneInfo(tz)
+        start = _dt.strptime(str(payload.get("start", "")), "%Y-%m-%d").date()
+        end = _dt.strptime(str(payload.get("end", "")), "%Y-%m-%d").date()
+        event = str(payload.get("event", ""))
+        janma = payload.get("janma") or {}
+        nak = janma.get("nakshatra")
+        rasi = janma.get("rasi")
+        nak = None if nak in (None, "") else int(nak)
+        rasi = None if rasi in (None, "") else int(rasi)
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        return jsonify({"error": "mu.err_request"}), 400
+    if (event not in muhurtham.EVENTS or not (-90 <= lat <= 90 and -180 <= lng <= 180)
+            or end < start or (nak is not None and not 0 <= nak < 27)
+            or (rasi is not None and not 0 <= rasi < 12)):
+        return jsonify({"error": "mu.err_request"}), 400
+    if (end - start).days + 1 > _MUHURTHAM_MAX_DAYS:
+        return jsonify({"error": "mu.err_span"}), 400
+    if not (_SKY_MIN_YEAR <= start.year and end.year <= _SKY_MAX_YEAR):
+        return jsonify({"error": "pan.err_range"}), 400
+
+    days, d = [], start
+    try:
+        while d <= end:
+            try:
+                with SWE_LOCK:
+                    days.append(panchang.compute(d, lat, lng, tz))
+            except panchang.PanchangError:
+                pass  # a polar day has no sunrise to hang a muhurtham on
+            d += _td(days=1)
+        result = muhurtham.find(days, event, nak, rasi, panchang.tithi_info)
+    except Exception as e:
+        return jsonify({"error": "mu.err_generic", "detail": str(e)}), 500
+
+    result.update(event=event, start=start.isoformat(), end=end.isoformat(),
+                  lat=lat, lng=lng, tz=tz, janma={"nakshatra": nak, "rasi": rasi})
     return jsonify(result)
 
 

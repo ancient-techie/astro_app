@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+     The muhurtham finder - good times for a vivaham, a griha pravesham or a
+     new vehicle, across one to three months at one place.
+
+     All the judgement is in muhurtham.py, all the astronomy in panchang.py;
+     POST /muhurtham-data returns every day already judged - its clear
+     windows best first, or the reasons that barred it - plus the best three.
+     This page only lays that out and turns each reason (an i18n key with the
+     terms it names) into a sentence in the reader's language.
+
+     The janma star and rasi come from the chart when the results page
+     re-posts its birth details (filled into __MU_JANMA__ by the route), and
+     otherwise from the two pickers - many people know their star and rasi
+     without knowing their birth time.
+
+     Its own file for the reason panchang.html is: Jinja never sees it.
+     Restart the server by hand after editing.
+     =========================================================================== -->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title data-i18n="mu.page_title">Muhurtham &ndash; finding a good day</title>
+<script>
+  (function () {
+    try {
+      var lang = window.localStorage.getItem("vedic-chart-lang");
+      if (lang === "en" || lang === "ta") {
+        document.documentElement.setAttribute("data-lang", lang);
+        document.documentElement.setAttribute("lang", lang);
+      }
+      var theme = window.localStorage.getItem("vedic-theme");
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      } else if (theme === "auto" && window.matchMedia
+                 && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (err) {}
+  })();
+</script>
+<script src="/i18n.js"></script>
+<meta name="description" content="Find a good muhurtham for a wedding, griha pravesham or vehicle purchase, from the panchangam and your star.">
+<meta name="theme-color" content="#0b0d17">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&family=Noto+Sans+Tamil:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --mu-bg: #0a0b16;
+    --mu-panel: rgba(255, 255, 255, 0.045);
+    --mu-border: rgba(212, 175, 55, 0.22);
+    --mu-ink: #e4dac9;
+    --mu-dim: rgba(228, 218, 201, 0.6);
+    --mu-gold: #d4af37;
+    --mu-gold-soft: rgba(212, 175, 55, 0.1);
+    --mu-good: #7fc98f;
+    --mu-good-soft: rgba(127, 201, 143, 0.16);
+    --mu-bad: #e08a6a;
+    --mu-bad-soft: rgba(224, 138, 106, 0.08);
+    --mu-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  }
+  html[data-theme="light"] {
+    --mu-bg: #f4efe4;
+    --mu-panel: rgba(32, 26, 12, 0.045);
+    --mu-border: rgba(140, 110, 30, 0.3);
+    --mu-ink: #2b2415;
+    --mu-dim: rgba(43, 36, 21, 0.64);
+    --mu-gold: #8a6b14;
+    --mu-gold-soft: rgba(160, 125, 25, 0.12);
+    --mu-good: #2f7a42;
+    --mu-good-soft: rgba(47, 122, 66, 0.14);
+    --mu-bad: #a2431f;
+    --mu-bad-soft: rgba(162, 67, 31, 0.07);
+    --mu-shadow: 0 10px 28px rgba(80, 65, 30, 0.16);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--mu-bg);
+    color: var(--mu-ink);
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 28px;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+  html[data-lang="ta"] body { font-family: 'Noto Sans Tamil', 'Lato', sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .mu-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .mu-top h1 {
+    font-family: 'Cinzel', serif; font-size: clamp(1.1rem, 3.8vw, 1.55rem);
+    letter-spacing: 0.12em; color: var(--mu-gold);
+  }
+  html[data-lang="ta"] .mu-top h1 { font-family: 'Noto Sans Tamil', serif; letter-spacing: 0.02em; }
+  .mu-top .sub { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--mu-dim); line-height: 1.5; }
+  .mu-link {
+    font-size: 0.75rem; letter-spacing: 0.05em; padding: 8px 16px; border-radius: 20px;
+    border: 1.5px solid var(--mu-border); background: var(--mu-gold-soft);
+    color: var(--mu-gold); text-decoration: none; white-space: nowrap;
+  }
+  .lang-switch {
+    flex-shrink: 0; display: inline-flex; gap: 2px; padding: 3px;
+    border: 1.5px solid var(--mu-border); border-radius: 999px; background: var(--mu-gold-soft);
+  }
+  .lang-switch button {
+    padding: 5px 11px; font-size: 11px; font-weight: 700;
+    color: var(--mu-dim); background: transparent; border: none; border-radius: 999px; cursor: pointer;
+  }
+  .lang-switch button.active { background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%); color: #1c1710; }
+
+  /* ── controls ────────────────────────────────────────────────────────── */
+  .mu-dock {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px;
+    padding: 12px; margin-bottom: 14px;
+    border: 1px solid var(--mu-border); border-radius: 14px;
+    background: var(--mu-panel); box-shadow: var(--mu-shadow);
+  }
+  .mu-field {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mu-dim);
+  }
+  html[data-lang="ta"] .mu-field { text-transform: none; letter-spacing: 0.01em; font-size: 12px; }
+  .mu-field input, .mu-field select {
+    font: inherit; font-size: 14px; letter-spacing: 0; text-transform: none;
+    padding: 7px 9px; border-radius: 8px; color-scheme: dark;
+    border: 1px solid var(--mu-border); background: var(--mu-bg); color: var(--mu-ink); min-width: 0;
+  }
+  html[data-theme="light"] .mu-field input, html[data-theme="light"] .mu-field select { color-scheme: light; }
+  .mu-field select { max-width: 200px; }
+  .mu-row { display: flex; gap: 6px; align-items: center; }
+  #muPlace { width: 140px; }
+  .mu-btn {
+    font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--mu-border); background: var(--mu-gold-soft); color: var(--mu-gold);
+  }
+  .mu-btn.primary { background: var(--mu-gold); color: #1c1710; font-weight: 700; border-color: var(--mu-gold); }
+  .mu-chart-note { font-size: 12px; color: var(--mu-gold); text-transform: none; letter-spacing: 0; }
+  .mu-note { font-size: 12px; color: var(--mu-dim); flex-basis: 100%; }
+  .mu-note.err { color: var(--mu-bad); }
+
+  /* ── cards ───────────────────────────────────────────────────────────── */
+  .card {
+    border: 1px solid var(--mu-border); border-radius: 16px;
+    background: var(--mu-panel); padding: 16px; min-width: 0; margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--mu-gold); margin-bottom: 12px; font-weight: 700;
+  }
+  html[data-lang="ta"] .card h2 { letter-spacing: 0.02em; font-size: 13px; text-transform: none; }
+  .warn { font-size: 13px; color: var(--mu-bad); margin-bottom: 12px; line-height: 1.5; }
+
+  .tops { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .top {
+    border: 1px solid var(--mu-border); border-radius: 14px; padding: 14px;
+    background: var(--mu-gold-soft); min-width: 0;
+  }
+  .top .rank {
+    display: inline-block; font-family: 'Cinzel', serif; font-size: 13px; color: #1c1710;
+    background: var(--mu-gold); border-radius: 999px; padding: 1px 9px; margin-bottom: 8px;
+  }
+  .top .date { font-size: 18px; font-weight: 700; }
+  .top .tamil, .day-detail .tamil { font-size: 13px; color: var(--mu-dim); margin-top: 2px; }
+  .top .time {
+    font-size: 22px; color: var(--mu-gold); margin: 10px 0 2px; font-variant-numeric: tabular-nums;
+  }
+  .top .score { font-size: 11px; color: var(--mu-dim); }
+  .limbs { font-size: 13px; color: var(--mu-dim); margin: 8px 0; line-height: 1.5; }
+  .reasons { list-style: none; margin-top: 8px; }
+  .reasons li { font-size: 13px; line-height: 1.45; padding: 3px 0 3px 20px; position: relative; }
+  .reasons li::before { position: absolute; left: 2px; top: 3px; font-weight: 700; }
+  .reasons li.good::before { content: "\2713"; color: var(--mu-good); }
+  .reasons li.bad::before { content: "\2715"; color: var(--mu-bad); }
+  .reasons li.bad { color: var(--mu-dim); }
+  .reasons li.block { color: var(--mu-bad); }
+  .also { font-size: 12px; color: var(--mu-dim); margin-top: 10px; }
+  .avoid { font-size: 12px; color: var(--mu-dim); margin-top: 8px; line-height: 1.5; }
+
+  /* ── calendar ────────────────────────────────────────────────────────── */
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--mu-dim); margin-bottom: 10px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+  /* Capped, or a single month on a wide screen draws day squares the size of cards. */
+  .months { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 400px)); gap: 16px; }
+  .month h3 { font-size: 14px; margin-bottom: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .wd { font-size: 10px; color: var(--mu-dim); text-align: center; padding-bottom: 2px; overflow: hidden; white-space: nowrap; }
+  .cell {
+    aspect-ratio: 1 / 1; min-width: 0; border-radius: 8px; font: inherit; font-size: 13px;
+    border: 1px solid transparent; background: transparent; color: var(--mu-dim); cursor: default;
+    display: flex; align-items: center; justify-content: center; position: relative;
+    font-variant-numeric: tabular-nums;
+  }
+  .cell.in { cursor: pointer; background: var(--mu-bad-soft); }
+  .cell.clear { background: var(--mu-good-soft); color: var(--mu-ink); border-color: var(--mu-good); }
+  .cell.best { background: var(--mu-gold); color: #1c1710; font-weight: 700; border-color: var(--mu-gold); }
+  .cell.sel { outline: 2px solid var(--mu-ink); outline-offset: 1px; }
+  .cell .n { position: absolute; top: 1px; right: 3px; font-size: 9px; }
+  .day-detail { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--mu-border); }
+  .day-detail .hd { font-size: 16px; font-weight: 700; }
+  .day-detail h4 { font-size: 12px; color: var(--mu-gold); margin-top: 10px; font-weight: 700; }
+  .win { margin-top: 8px; }
+  .win .time { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .hint { font-size: 12px; color: var(--mu-dim); margin-top: 10px; }
+
+  .foot { font-size: 12px; color: var(--mu-dim); line-height: 1.55; }
+  .state { text-align: center; padding: 40px 10px; color: var(--mu-dim); }
+  .state.err { color: var(--mu-bad); }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 520px) {
+    .mu-field select { max-width: 160px; }
+    #muPlace { width: 120px; }
+    .top .time { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="mu-top">
+  <h1 data-i18n="mu.title">Muhurtham</h1>
+  <p class="sub" data-i18n="mu.subtitle">Good dates for a ceremony, from the panchangam and your own star.</p>
+  <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  </div>
+  <a class="mu-link" href="/" data-i18n="pg.back">Back to Generator</a>
+</header>
+
+<div class="mu-dock">
+  <label class="mu-field"><span data-i18n="mu.event">Ceremony</span>
+    <select id="muEvent">
+      <option value="vivaham" data-i18n="mu.ev.vivaham">Vivaham</option>
+      <option value="griha_pravesham" data-i18n="mu.ev.griha_pravesham">Griha pravesham</option>
+      <option value="vahana" data-i18n="mu.ev.vahana">Vehicle purchase</option>
+    </select>
+  </label>
+  <label class="mu-field"><span data-i18n="mu.month">Month</span>
+    <input type="month" id="muMonth">
+  </label>
+  <label class="mu-field"><span data-i18n="mu.span">For</span>
+    <select id="muSpan">
+      <option value="1" data-i18n="mu.span_1">1 month</option>
+      <option value="2" data-i18n="mu.span_2">2 months</option>
+      <option value="3" data-i18n="mu.span_3">3 months</option>
+    </select>
+  </label>
+  <label class="mu-field"><span data-i18n="mu.star">Janma star</span>
+    <select id="muStar"></select>
+  </label>
+  <label class="mu-field"><span data-i18n="mu.rasi">Rasi</span>
+    <select id="muRasi"></select>
+  </label>
+  <div class="mu-field"><span data-i18n="pan.place">Place</span>
+    <div class="mu-row">
+      <input type="text" id="muPlace" autocomplete="off" value="Chennai">
+      <button type="button" class="mu-btn" id="muFindPlace" data-i18n="pan.find">Find</button>
+    </div>
+  </div>
+  <label class="mu-field"><span data-i18n="pan.zone">Zone</span>
+    <select id="muTz"></select>
+  </label>
+  <button type="button" class="mu-btn primary" id="muGo" data-i18n="mu.find">Find dates</button>
+  <span class="mu-chart-note" id="muChartNote" hidden></span>
+  <span class="mu-note" id="muNote"></span>
+</div>
+
+<div id="muState" class="state" data-i18n="mu.loading" hidden>Reading the days&hellip;</div>
+
+<main id="muMain" hidden>
+  <section class="card">
+    <h2 data-i18n="mu.top_title">The best dates</h2>
+    <p class="warn" id="muNoStar" data-i18n="mu.no_star_note" hidden></p>
+    <p class="warn" id="muNone" data-i18n="mu.none_clear" hidden></p>
+    <div class="tops" id="muTops"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="mu.cal_title">Day by day</h2>
+    <div class="legend">
+      <span><i style="background:var(--mu-gold)"></i><span data-i18n="mu.legend_best">Best three</span></span>
+      <span><i style="background:var(--mu-good-soft);outline:1px solid var(--mu-good)"></i><span data-i18n="mu.legend_clear">Clear</span></span>
+      <span><i style="background:var(--mu-bad-soft);outline:1px solid var(--mu-border)"></i><span data-i18n="mu.legend_blocked">Not suitable</span></span>
+    </div>
+    <div class="months" id="muMonths"></div>
+    <div class="day-detail" id="muDetail" hidden></div>
+    <p class="hint" id="muHint" data-i18n="mu.tap_hint">Tap a day for its reasons.</p>
+  </section>
+
+  <p class="foot" data-i18n="mu.note"></p>
+</main>
+
+</div>
+
+<script id="muJanma" type="application/json">__MU_JANMA__</script>
+<script>
+(function () {
+  "use strict";
+
+  var STORE_KEY = "vedic-muhurtham";
+  var PANCHANG_KEY = "vedic-panchang-place";
+  var DEFAULT_PLACE = { place: "Chennai", lat: 13.0827, lng: 80.2707, tz: "Asia/Kolkata" };
+  var NAKSHATRAS = [
+    "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra",
+    "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni",
+    "Hasta", "Chitra", "Swati", "Vishakha", "Anuradha", "Jyeshtha",
+    "Mula", "Purva Ashadha", "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha",
+    "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"
+  ];
+  var SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+               "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var eventEl = $("muEvent"), monthEl = $("muMonth"), spanEl = $("muSpan"),
+      starEl = $("muStar"), rasiEl = $("muRasi"), placeEl = $("muPlace"), tzEl = $("muTz"),
+      noteEl = $("muNote"), stateEl = $("muState"), mainEl = $("muMain");
+
+  var janmaFromChart = null;
+  try { janmaFromChart = JSON.parse($("muJanma").textContent); } catch (err) {}
+
+  var data = null, place = null, selected = null, seq = 0;
+
+  function t(k, p) { return I18N.t(k, p); }
+  function term(kind, k) { return I18N.term(kind, k); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // ── zones (as on the panchangam page) ──────────────────────────────────
+  (function fillZones() {
+    var zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (err) {}
+    if (zones.indexOf("Asia/Kolkata") < 0) zones.unshift("Asia/Kolkata");
+    if (zones.indexOf("UTC") < 0) zones.push("UTC");
+    zones.forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = z;
+      tzEl.appendChild(o);
+    });
+  })();
+  function setZone(z) {
+    if (!z) return;
+    if (![].some.call(tzEl.options, function (o) { return o.value === z; })) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = z;
+      tzEl.appendChild(o);
+    }
+    tzEl.value = z;
+  }
+
+  // ── the star and rasi pickers ──────────────────────────────────────────
+  // A nakshatra's four padas cover 13°20'; nine padas make a rasi, so a
+  // star sits in one rasi or straddles two. The rasi picker only offers
+  // the ones the chosen star can be in.
+  function rasisOf(nak) {
+    var out = [];
+    for (var k = 0; k < 4; k++) {
+      var r = Math.floor((nak * 4 + k) / 9);
+      if (out.indexOf(r) < 0) out.push(r);
+    }
+    return out;
+  }
+  function fillStars() {
+    var keep = starEl.value;
+    starEl.innerHTML = '<option value="">' + esc(t("mu.star_none")) + '</option>' +
+      NAKSHATRAS.map(function (n, i) {
+        return '<option value="' + i + '">' + esc(term("nakshatra", n)) + '</option>';
+      }).join("");
+    starEl.value = keep;
+  }
+  function fillRasis(want) {
+    var nak = starEl.value === "" ? null : +starEl.value;
+    var keep = want != null ? String(want) : rasiEl.value;
+    var list = nak == null ? [] : rasisOf(nak);
+    rasiEl.innerHTML = nak == null ? '<option value="">' + esc(t("mu.star_none")) + '</option>' :
+      list.map(function (r) { return '<option value="' + r + '">' + esc(term("sign", SIGNS[r])) + '</option>'; }).join("");
+    rasiEl.disabled = nak == null;
+    if (list.map(String).indexOf(keep) >= 0) rasiEl.value = keep;
+  }
+
+  // ── time formatting ────────────────────────────────────────────────────
+  function wall(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
+    var ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + 30000;
+    var d = new Date(ms - ms % 60000);
+    return { h: d.getUTCHours(), mi: d.getUTCMinutes() };
+  }
+  function clock(iso) {
+    var w = wall(iso);
+    return (w.h % 12 || 12) + ":" + (w.mi < 10 ? "0" : "") + w.mi + " " + t(w.h < 12 ? "pan.am" : "pan.pm");
+  }
+  function range(a, b) { return clock(a) + " – " + clock(b); }
+  function locale() { return I18N.lang === "ta" ? "ta-IN" : "en-GB"; }
+  function civil(iso, opts) {
+    var p = iso.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] || 1));
+    try { return d.toLocaleDateString(locale(), Object.assign({ timeZone: "UTC" }, opts)); }
+    catch (err) { return iso; }
+  }
+  function isoDay(d) { return d.toISOString().slice(0, 10); }
+
+  // ── reasons ────────────────────────────────────────────────────────────
+  // Each reason names its terms as [kind, key]; translate those, then let
+  // the key's template place them.
+  function reasonText(r) {
+    var p = Object.assign({}, r.params);
+    Object.keys(r.terms || {}).forEach(function (k) { p[k] = term(r.terms[k][0], r.terms[k][1]); });
+    return t(r.key, p);
+  }
+  function reasonList(list, cls) {
+    return '<ul class="reasons">' + list.map(function (r) {
+      return '<li class="' + (cls || r.tone) + '">' + esc(reasonText(r)) + '</li>';
+    }).join("") + '</ul>';
+  }
+  function limbsLine(l) {
+    return [term("paksha", l.paksha) + " " + term("tithi", l.tithi),
+            term("nakshatra", l.nakshatra),
+            term("yoga", l.yoga),
+            term("sign", l.moon_rasi)].map(esc).join(" · ");
+  }
+  function tamilLine(d) {
+    return t("pan.tamil_fmt", { month: term("tamil_month", d.tamil.month), day: d.tamil.day }) +
+           " · " + term("vara", d.vara);
+  }
+  function avoidLine(d) {
+    return t("mu.avoid_line", { rahu: range(d.rahu_kalam.start, d.rahu_kalam.end),
+                                yama: range(d.yamagandam.start, d.yamagandam.end),
+                                kuli: range(d.kuligai.start, d.kuligai.end) });
+  }
+
+  // ── rendering ──────────────────────────────────────────────────────────
+  function render() {
+    if (!data) return;
+    var byDate = {};
+    data.days.forEach(function (d) { byDate[d.date] = d; });
+
+    $("muNoStar").hidden = data.janma.nakshatra != null;
+    $("muNone").hidden = data.top.length > 0;
+    $("muTops").innerHTML = data.top.map(function (date, i) {
+      var d = byDate[date], w = d.windows[0];
+      var others = d.windows.slice(1).map(function (o) { return range(o.start, o.end); });
+      return '<article class="top"><span class="rank">' + (i + 1) + '</span>' +
+        '<div class="date">' + esc(civil(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })) + '</div>' +
+        '<div class="tamil">' + esc(tamilLine(d)) + '</div>' +
+        '<div class="time">' + esc(range(w.start, w.end)) + '</div>' +
+        '<div class="score">' + esc(t("mu.score", { score: w.score })) + '</div>' +
+        '<div class="limbs">' + limbsLine(w.limbs) + '</div>' +
+        reasonList(w.reasons) +
+        (others.length ? '<div class="also">' + esc(t("mu.also")) + ': ' + esc(others.join(", ")) + '</div>' : "") +
+        '<div class="avoid">' + esc(avoidLine(d)) + '</div>' +
+        '</article>';
+    }).join("");
+
+    // One grid per calendar month the range touches, Sunday first.
+    var wd = [];
+    for (var k = 0; k < 7; k++) wd.push(civil("2023-01-0" + (k + 1), { weekday: "short" }));
+    var months = [], cur = data.start.slice(0, 7);
+    while (cur <= data.end.slice(0, 7)) {
+      months.push(cur);
+      var p = cur.split("-"), nx = new Date(Date.UTC(+p[0], +p[1], 1));
+      cur = isoDay(nx).slice(0, 7);
+    }
+    $("muMonths").innerHTML = months.map(function (ym) {
+      var p = ym.split("-"), first = new Date(Date.UTC(+p[0], +p[1] - 1, 1));
+      var len = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
+      var html = '<div class="month"><h3>' + esc(civil(ym + "-01", { month: "long", year: "numeric" })) +
+                 '</h3><div class="grid">' + wd.map(function (w) { return '<div class="wd">' + esc(w) + '</div>'; }).join("");
+      for (var b = 0; b < first.getUTCDay(); b++) html += '<span></span>';
+      for (var dd = 1; dd <= len; dd++) {
+        var iso = ym + "-" + (dd < 10 ? "0" : "") + dd, day = byDate[iso];
+        var rank = data.top.indexOf(iso);
+        var cls = "cell" + (day ? " in" : "") + (day && day.status === "clear" ? " clear" : "") +
+                  (rank >= 0 ? " best" : "") + (selected === iso ? " sel" : "");
+        html += day
+          ? '<button type="button" class="' + cls + '" data-day="' + iso + '">' + dd +
+            (rank >= 0 ? '<span class="n">' + (rank + 1) + '</span>' : "") + '</button>'
+          : '<span class="' + cls + '">' + dd + '</span>';
+      }
+      return html + '</div></div>';
+    }).join("");
+
+    renderDetail(byDate);
+  }
+
+  function renderDetail(byDate) {
+    var el = $("muDetail"), d = selected && byDate[selected];
+    $("muHint").hidden = !!d;
+    if (!d) { el.hidden = true; return; }
+    var html = '<div class="hd">' + esc(civil(d.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })) + '</div>' +
+               '<div class="tamil">' + esc(tamilLine(d)) + '</div>';
+    if (d.status === "clear") {
+      html += '<h4>' + esc(t("mu.why")) + '</h4>' + d.windows.map(function (w) {
+        return '<div class="win"><div class="time">' + esc(range(w.start, w.end)) +
+               ' <span class="score">· ' + esc(t("mu.score", { score: w.score })) + '</span></div>' +
+               '<div class="limbs">' + limbsLine(w.limbs) + '</div>' + reasonList(w.reasons) + '</div>';
+      }).join("");
+    } else {
+      html += '<h4>' + esc(t("mu.why_not")) + '</h4>' + reasonList(d.blocks, "bad block");
+    }
+    html += '<div class="avoid">' + esc(avoidLine(d)) + '</div>';
+    el.innerHTML = html;
+    el.hidden = false;
+  }
+
+  $("muMonths").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-day]");
+    if (!b) return;
+    selected = selected === b.getAttribute("data-day") ? null : b.getAttribute("data-day");
+    render();
+  });
+
+  // ── state ──────────────────────────────────────────────────────────────
+  function remember() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        place: place, event: eventEl.value, span: spanEl.value,
+        star: starEl.value, rasi: rasiEl.value
+      }));
+    } catch (err) {}
+  }
+
+  // The range: the chosen month(s), but never days already past.
+  function dateRange() {
+    var p = monthEl.value.split("-");
+    var start = new Date(Date.UTC(+p[0], +p[1] - 1, 1));
+    var end = new Date(Date.UTC(+p[0], +p[1] - 1 + (+spanEl.value), 0));
+    var now = new Date(), today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    if (start < today && end >= today) start = today;
+    return { start: isoDay(start), end: isoDay(end) };
+  }
+
+  function load() {
+    if (!monthEl.value || !place) return;
+    var mine = ++seq;
+    place.tz = tzEl.value;
+    var r = dateRange();
+    var body = {
+      event: eventEl.value, start: r.start, end: r.end,
+      lat: place.lat, lng: place.lng, tz: place.tz,
+      janma: { nakshatra: starEl.value === "" ? null : +starEl.value,
+               rasi: rasiEl.value === "" ? null : +rasiEl.value }
+    };
+    noteEl.classList.remove("err");
+    if (!data) { stateEl.hidden = false; stateEl.className = "state"; stateEl.textContent = t("mu.loading"); }
+    else noteEl.textContent = t("mu.loading");
+    fetch("/muhurtham-data", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().then(function (j) { if (!res.ok) throw new Error(j.error || "mu.err_generic"); return j; });
+    }).then(function (j) {
+      if (mine !== seq) return;
+      data = j;
+      selected = null;
+      noteEl.textContent = "";
+      stateEl.hidden = true;
+      mainEl.hidden = false;
+      render();
+      remember();
+    }).catch(function (err) {
+      if (mine !== seq) return;
+      var m = err && err.message, key = (m && /^(mu|pan)\./.test(m)) ? m : "mu.err_generic";
+      if (data) { noteEl.classList.add("err"); noteEl.textContent = t(key); }
+      else { stateEl.className = "state err"; stateEl.textContent = t(key); }
+    });
+  }
+
+  function findPlace() {
+    var q = placeEl.value.trim();
+    if (!q) return;
+    noteEl.classList.remove("err");
+    noteEl.textContent = "…";
+    var body = new URLSearchParams();
+    body.set("place", q);
+    fetch("/geocode", { method: "POST", body: body }).then(function (res) {
+      return res.json().then(function (j) { if (!res.ok) throw new Error(); return j; });
+    }).then(function (j) {
+      place = { place: q, lat: j.lat, lng: j.lng, tz: j.tz || tzEl.value };
+      setZone(place.tz);
+      load();
+    }).catch(function () {
+      noteEl.classList.add("err");
+      noteEl.textContent = t("pan.place_err");
+    });
+  }
+
+  function chartNote() {
+    var el = $("muChartNote");
+    if (!janmaFromChart) { el.hidden = true; return; }
+    el.textContent = t("mu.from_chart", { name: janmaFromChart.name || "—" });
+    el.hidden = false;
+  }
+
+  $("muGo").addEventListener("click", load);
+  $("muFindPlace").addEventListener("click", findPlace);
+  placeEl.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); findPlace(); } });
+  starEl.addEventListener("change", function () { fillRasis(); if (janmaFromChart) { janmaFromChart = null; chartNote(); } });
+  rasiEl.addEventListener("change", function () { if (janmaFromChart) { janmaFromChart = null; chartNote(); } });
+  [eventEl, spanEl, monthEl, tzEl].forEach(function (el) { el.addEventListener("change", load); });
+  starEl.addEventListener("change", load);
+  rasiEl.addEventListener("change", load);
+
+  I18N.onChange(function () {
+    var s = starEl.value, r = rasiEl.value;
+    fillStars(); starEl.value = s; fillRasis(r);
+    chartNote();
+    render();
+  });
+
+  // ── boot: chart, then the last search here, then the panchangam's place,
+  // then the birth place, then Chennai ──────────────────────────────────
+  (function boot() {
+    var saved = null, pan = null;
+    try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (err) {}
+    try { pan = JSON.parse(localStorage.getItem(PANCHANG_KEY) || "null"); } catch (err) {}
+
+    fillStars();
+    if (janmaFromChart) {
+      starEl.value = String(janmaFromChart.nakshatra);
+      fillRasis(janmaFromChart.rasi);
+    } else if (saved && saved.star !== undefined) {
+      starEl.value = saved.star;
+      fillRasis(saved.rasi);
+    } else {
+      fillRasis();
+    }
+    chartNote();
+    if (saved && saved.event) eventEl.value = saved.event;
+    if (saved && saved.span) spanEl.value = saved.span;
+
+    var now = new Date();
+    monthEl.value = now.getFullYear() + "-" + (now.getMonth() < 9 ? "0" : "") + (now.getMonth() + 1);
+
+    var birthPlace = janmaFromChart && janmaFromChart.tz
+      ? { place: janmaFromChart.city, lat: janmaFromChart.lat, lng: janmaFromChart.lng, tz: janmaFromChart.tz } : null;
+    var src = (saved && saved.place) || (pan && pan.lat != null ? pan : null) || birthPlace || DEFAULT_PLACE;
+    place = { place: src.place || "", lat: src.lat, lng: src.lng, tz: src.tz || DEFAULT_PLACE.tz };
+    placeEl.value = place.place;
+    setZone(place.tz);
+    load();
+  })();
+})();
+</script>
+</body>
+</html>
