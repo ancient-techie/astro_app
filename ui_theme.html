@@ -1,0 +1,488 @@
+<!--
+  The design layer every page shares: maroon on warm paper, Cormorant for
+  titles and Inter for everything else. Injected by the after_request hook
+  (`_apply_shell` in app.py) just before </head>, so it lands after each
+  page's own <style> and wins on equal specificity - which is how one file
+  restates the colour tokens of six pages that each named theirs
+  differently (--bg, --pan-*, --sky-*, --vc-*, --mu-*, --gl-*).
+
+  The page's own CSS still says 'Cinzel' and 'Lato'; the hook rewrites both
+  names to 'Inter' in the response, and the rules below give the serif back
+  to titles only. Doing it by name rather than by selector is what reaches
+  the hundreds of small labels no list here could keep up with.
+
+  The charts stay navy in both themes - a rasi chart is a drawing.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&family=Noto+Serif+Tamil:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --vx-serif: 'Cormorant Garamond', 'Noto Serif Tamil', Georgia, serif;
+    --vx-sans: 'Inter', 'Noto Sans Tamil', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+    /* night: the same room with the lamps low - warm, not navy */
+    --vx-bg: #161011;
+    --vx-paper: #1f1718;
+    --vx-paper-a: rgba(255, 244, 228, 0.045);
+    --vx-sand: #2a1f1f;
+    --vx-sand-2: #35282a;
+    --vx-line: rgba(214, 173, 95, 0.2);
+    --vx-line-2: rgba(214, 173, 95, 0.34);
+    --vx-ink: #efe5d8;
+    --vx-ink-2: rgba(239, 229, 216, 0.68);
+    --vx-head: #ecd3a0;
+    --vx-accent: #9e333d;
+    --vx-accent-2: #b84450;
+    --vx-accent-text: #e8b9a0;
+    --vx-on-accent: #fff8ee;
+    --vx-gold: #d6ad5f;
+    --vx-band: #3a1116;
+    --vx-strip: #2b0d11;
+    --vx-foot: #0f0a0b;
+    --vx-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --vx-soft: rgba(214, 173, 95, 0.08);
+  }
+  html[data-theme="light"] {
+    --vx-bg: #faf6ef;
+    --vx-paper: #fffdf8;
+    --vx-paper-a: rgba(255, 253, 248, 0.82);
+    --vx-sand: #f3ead9;
+    --vx-sand-2: #e9dcc2;
+    --vx-line: #e6d9c4;
+    --vx-line-2: #d8c6a8;
+    --vx-ink: #2b201d;
+    --vx-ink-2: #62534c;
+    --vx-head: #4a1419;
+    --vx-accent: #6e1f27;
+    --vx-accent-2: #85262f;
+    --vx-accent-text: #6e1f27;
+    --vx-on-accent: #fff8ee;
+    --vx-gold: #9b7226;
+    --vx-band: #4a1419;
+    --vx-strip: #4a1419;
+    --vx-foot: #2a1c1a;
+    --vx-shadow: 0 18px 40px rgba(74, 20, 25, 0.1);
+    --vx-soft: rgba(110, 31, 39, 0.06);
+  }
+
+  /* ── every page's tokens, restated ───────────────────────────────────── */
+  /* The generator, porutham and admin pages share one vocabulary. */
+  :root {
+    --bg: var(--vx-bg);
+    --surface: var(--vx-paper);
+    --surface-2: var(--vx-sand);
+    --surface-3: var(--vx-sand-2);
+    --border: var(--vx-line);
+    --page-bg: var(--vx-bg);
+    --bar-bg: var(--vx-paper);
+    --radius-lg: 4px;
+    --radius-md: 4px;
+    --radius-sm: 3px;
+  }
+  html[data-theme="light"] {
+    --text: var(--vx-ink);
+    --muted: var(--vx-ink-2);
+    --muted-2: rgba(43, 32, 29, 0.46);
+    --primary: var(--vx-accent);
+    --primary-2: var(--vx-accent);
+    --primary-grad: linear-gradient(var(--vx-accent), var(--vx-accent));
+    --primary-grad-soft: linear-gradient(rgba(110,31,39,0.07), rgba(110,31,39,0.07));
+    --on-primary: var(--vx-on-accent);
+    --gold: var(--vx-gold);
+  }
+  /* The standalone pages, each in its own prefix. */
+  :root {
+    --pan-bg: var(--vx-bg);   --sky-bg: var(--vx-bg);   --vc-bg: var(--vx-bg);
+    --mu-bg: var(--vx-bg);    --gl-bg: var(--vx-bg);
+  }
+  html[data-theme="light"] {
+    --pan-panel: var(--vx-paper-a); --sky-panel: var(--vx-paper-a); --vc-panel: var(--vx-paper-a);
+    --mu-panel: var(--vx-paper-a);  --gl-panel: var(--vx-paper-a);
+    --vc-panel-2: var(--vx-sand);   --gl-panel-2: var(--vx-sand);
+    --pan-border: var(--vx-line); --sky-border: var(--vx-line); --vc-border: var(--vx-line);
+    --mu-border: var(--vx-line);  --gl-border: var(--vx-line);
+    --pan-ink: var(--vx-ink); --sky-ink: var(--vx-ink); --vc-ink: var(--vx-ink);
+    --mu-ink: var(--vx-ink);  --gl-ink: var(--vx-ink);
+    --pan-dim: var(--vx-ink-2); --sky-dim: var(--vx-ink-2); --vc-dim: var(--vx-ink-2);
+    --mu-dim: var(--vx-ink-2);  --gl-dim: var(--vx-ink-2);
+    --pan-gold: var(--vx-accent); --sky-gold: var(--vx-accent); --vc-gold: var(--vx-accent);
+    --mu-gold: var(--vx-accent);  --gl-gold: var(--vx-accent);
+    --pan-gold-soft: var(--vx-soft); --sky-gold-soft: var(--vx-soft); --vc-gold-soft: var(--vx-soft);
+    --mu-gold-soft: var(--vx-soft);  --gl-gold-soft: var(--vx-soft);
+    --pan-now: rgba(110, 31, 39, 0.1);
+    --pan-shadow: var(--vx-shadow); --sky-shadow: var(--vx-shadow); --vc-shadow: var(--vx-shadow);
+    --mu-shadow: var(--vx-shadow);  --gl-shadow: var(--vx-shadow);
+  }
+
+  /* ── type ────────────────────────────────────────────────────────────── */
+  html body {
+    font-family: var(--vx-sans);
+    background: var(--vx-bg);
+    color: var(--vx-ink);
+  }
+  html[data-lang="ta"] body { font-family: 'Noto Sans Tamil', var(--vx-sans); }
+  html body h1, html body h2,
+  .section-title, .app-bar__title, .chart-card h3,
+  .pan-top h1, .sky-top h1, .vc-top h1, .mu-top h1, .gl-top h1,
+  .vx-serif {
+    font-family: var(--vx-serif);
+    letter-spacing: 0.005em;
+    text-transform: none;
+    text-shadow: none;
+    color: var(--vx-head);
+    font-weight: 600;
+  }
+  html[data-lang="ta"] body h1, html[data-lang="ta"] body h2,
+  html[data-lang="ta"] .section-title, html[data-lang="ta"] .app-bar__title,
+  html[data-lang="ta"] .chart-card h3, html[data-lang="ta"] .vx-serif {
+    font-family: 'Noto Serif Tamil', var(--vx-serif);
+    letter-spacing: 0;
+  }
+  .pan-top h1, .sky-top h1, .vc-top h1, .mu-top h1, .gl-top h1 {
+    font-size: clamp(1.7rem, 4.6vw, 2.4rem);
+    line-height: 1.1;
+  }
+  .section-title { font-size: 1.45rem; }
+
+  /* ── the page's own chrome, where the site bar now does the job ──────── */
+  .lang-switch:not(.vx-lang), .theme-switch:not(.vx-theme) { display: none !important; }
+  .pan-top a[href="/"], .sky-top a[href="/"], .vc-top a[href="/"],
+  .mu-top a[href="/"], .gl-top a[href="/"], .app-bar .back-btn[href="/"] { display: none !important; }
+  .vx-hide { display: none !important; }
+  .app-bar {
+    position: static;
+    background: transparent;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-bottom: 0;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 16px 6px;
+  }
+  .app-bar__icon { display: none; }
+  .app-bar__title { font-size: clamp(1.6rem, 4.6vw, 2.2rem); }
+
+  /* Buttons and cards: squarer, flatter, one hairline. */
+  html[data-theme="light"] .submit-btn,
+  html[data-theme="light"] .confirm-btn {
+    background: var(--vx-accent);
+    color: var(--vx-on-accent);
+    border-radius: 4px;
+    box-shadow: none;
+  }
+  html[data-theme="light"] .submit-btn:hover { background: var(--vx-accent-2); }
+  html[data-theme="light"] .card,
+  html[data-theme="light"] .meta-card,
+  html[data-theme="light"] .chart-card {
+    box-shadow: 0 1px 0 rgba(74, 20, 25, 0.03);
+  }
+  html[data-theme="light"] body { background-image: none; }
+
+  /* ── buttons that were dark text on gold, now on maroon ──────────────── */
+  html[data-theme="light"] .pan-btn.on,
+  html[data-theme="light"] .mu-btn.primary,
+  html[data-theme="light"] .cell.best,
+  html[data-theme="light"] .top .rank,
+  html[data-theme="light"] .gl-toast { color: var(--vx-on-accent); }
+  html .vx-site .vx-lang button.active {
+    background: var(--vx-accent); color: var(--vx-on-accent); box-shadow: none;
+  }
+  html .vx-site .vx-lang button:not(.active):hover { color: var(--vx-accent-text); }
+
+  /* ── the charts ──────────────────────────────────────────────────────── */
+  /* jyotichart paints black cells, yellow rules and white glyphs into each
+     element's own style attribute. Restyled here, not in the SVG, so the
+     drawing the server sends - and the PDF made from it - stays the same.
+     The style attribute beats a stylesheet unless it says !important. */
+  .chart-card { background: var(--vx-paper) !important; border: 1px solid var(--vx-line); box-shadow: none !important; }
+  .chart-card h3 { color: var(--vx-head) !important; }
+  .chart-svg svg rect, .chart-svg svg polygon {
+    fill: #fffdf8 !important; stroke: #b99a6a !important; stroke-width: 1.2 !important;
+  }
+  .chart-svg svg rect#border, .chart-svg svg > rect:first-of-type:not([id]) {
+    stroke: #6e1f27 !important; stroke-width: 3 !important;
+  }
+  .chart-svg svg rect#center { fill: #f3ead9 !important; stroke: #6e1f27 !important; stroke-width: 1.6 !important; }
+  .chart-svg svg text[fill="white"] { fill: #3a1d1a; }
+  .chart-svg svg text[fill="pink"] { fill: #9b7226; }
+  .chart-svg svg .chart-details, .chart-svg svg text:not([fill]) { fill: #4a1419; }
+  html[data-theme="dark"] .chart-svg svg rect, html[data-theme="dark"] .chart-svg svg polygon {
+    fill: #1f1718 !important; stroke: rgba(214, 173, 95, 0.45) !important;
+  }
+  html[data-theme="dark"] .chart-svg svg rect#border,
+  html[data-theme="dark"] .chart-svg svg > rect:first-of-type:not([id]) { stroke: #d6ad5f !important; }
+  html[data-theme="dark"] .chart-svg svg rect#center { fill: #2a1f1f !important; stroke: #d6ad5f !important; }
+  html[data-theme="dark"] .chart-svg svg text[fill="white"] { fill: #efe5d8; }
+  html[data-theme="dark"] .chart-svg svg text[fill="pink"] { fill: #e8c98a; }
+  html[data-theme="dark"] .chart-svg svg .chart-details,
+  html[data-theme="dark"] .chart-svg svg text:not([fill]) { fill: #ecd3a0; }
+
+  /* ── site strip + bar ────────────────────────────────────────────────── */
+  .vx-site { position: relative; z-index: 40; font-family: var(--vx-sans); }
+  .vx-strip {
+    background: var(--vx-strip);
+    color: #f1dfc8;
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    display: flex; justify-content: center; flex-wrap: wrap;
+    gap: 4px 22px;
+    padding: 7px 16px;
+    padding-top: calc(7px + env(safe-area-inset-top, 0px));
+  }
+  .vx-bar {
+    background: var(--vx-paper);
+    border-bottom: 1px solid var(--vx-line);
+    position: sticky; top: 0;
+  }
+  .vx-bar__in {
+    max-width: 1180px; margin: 0 auto;
+    display: flex; align-items: center; gap: 18px;
+    padding: 12px 16px;
+  }
+  .vx-brand {
+    display: inline-flex; align-items: center; gap: 10px;
+    color: var(--vx-head); text-decoration: none;
+    font-family: var(--vx-serif); font-weight: 600; font-size: 22px;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  html[data-lang="ta"] .vx-brand { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 18px; }
+  .vx-brand svg { width: 28px; height: 28px; flex-shrink: 0; }
+  .vx-nav { display: flex; align-items: center; gap: 4px; margin-left: 28px; }
+  .vx-nav a {
+    color: var(--vx-ink); text-decoration: none;
+    font-size: 14px; font-weight: 500;
+    padding: 8px 10px; border-radius: 3px; white-space: nowrap;
+  }
+  .vx-nav a:hover { color: var(--vx-accent-text); background: var(--vx-soft); }
+  .vx-nav a[aria-current="page"] { color: var(--vx-accent-text); box-shadow: inset 0 -2px 0 var(--vx-gold); border-radius: 0; }
+  .vx-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .vx-lang {
+    display: inline-flex; padding: 2px;
+    border: 1px solid var(--vx-line-2); border-radius: 999px;
+    background: var(--vx-paper);
+  }
+  .vx-lang button {
+    border: 0; background: transparent; cursor: pointer;
+    font: 600 12px/1 var(--vx-sans);
+    color: var(--vx-ink-2);
+    padding: 7px 11px; border-radius: 999px;
+  }
+  .vx-lang button.active { background: var(--vx-accent); color: var(--vx-on-accent); }
+  .vx-theme {
+    width: 34px; height: 34px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--vx-line-2); border-radius: 999px;
+    background: var(--vx-paper); color: var(--vx-accent-text); cursor: pointer;
+  }
+  .vx-theme .th-ico {
+    width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round; display: none;
+  }
+  .vx-theme .th-light { display: block; }
+  html[data-theme-pref="dark"] .vx-theme .th-dark,
+  html[data-theme-pref="light"] .vx-theme .th-light,
+  html[data-theme-pref="auto"] .vx-theme .th-auto { display: block; }
+  html[data-theme-pref="dark"] .vx-theme .th-light,
+  html[data-theme-pref="auto"] .vx-theme .th-light { display: none; }
+
+  .vx-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font: 600 14px/1.2 var(--vx-sans);
+    padding: 12px 20px; border-radius: 3px;
+    text-decoration: none; cursor: pointer; white-space: nowrap;
+    border: 1.5px solid var(--vx-accent);
+    transition: background 0.15s, color 0.15s;
+  }
+  .vx-btn[hidden] { display: none; }
+  .vx-btn--solid { background: var(--vx-accent); color: var(--vx-on-accent); }
+  .vx-btn--solid:hover { background: var(--vx-accent-2); border-color: var(--vx-accent-2); }
+  .vx-btn--line { background: transparent; color: var(--vx-accent-text); }
+  .vx-btn--line:hover { background: var(--vx-soft); }
+  .vx-btn--sm { padding: 9px 14px; font-size: 13px; }
+
+  .vx-menu-btn {
+    display: none;
+    width: 38px; height: 38px; padding: 0;
+    align-items: center; justify-content: center;
+    border: 1px solid var(--vx-line-2); border-radius: 3px;
+    background: var(--vx-paper); color: var(--vx-head); cursor: pointer;
+  }
+  .vx-menu-btn svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; }
+
+  @media (max-width: 1040px) {
+    .vx-menu-btn { display: inline-flex; }
+    .vx-nav {
+      display: none;
+      position: absolute; left: 0; right: 0; top: 100%;
+      flex-direction: column; align-items: stretch; gap: 0;
+      margin: 0; padding: 6px 12px 14px;
+      background: var(--vx-paper);
+      border-bottom: 1px solid var(--vx-line);
+      box-shadow: var(--vx-shadow);
+    }
+    .vx-site.vx-open .vx-nav { display: flex; }
+    .vx-nav a { padding: 13px 8px; border-bottom: 1px solid var(--vx-line); border-radius: 0; font-size: 15px; }
+    .vx-nav a[aria-current="page"] { box-shadow: inset 3px 0 0 var(--vx-gold); padding-left: 14px; }
+  }
+  @media (max-width: 640px) {
+    .vx-tools .vx-cta { display: none; }
+    .vx-bar__in { gap: 10px; padding: 10px 14px; }
+    .vx-brand { font-size: 19px; gap: 8px; }
+    .vx-brand svg { width: 24px; height: 24px; }
+    html[data-lang="ta"] .vx-brand { font-size: 15px; }
+    .vx-tools { gap: 6px; }
+    .vx-lang button { padding: 6px 8px; }
+    .vx-strip span + span + span { display: none; }
+  }
+  @media (max-width: 380px) {
+    .vx-brand span { max-width: 118px; overflow: hidden; text-overflow: ellipsis; }
+    html[data-lang="ta"] .vx-brand span { max-width: 92px; }
+    .vx-theme { width: 32px; height: 32px; }
+  }
+
+  /* ── footer ──────────────────────────────────────────────────────────── */
+  .vx-foot {
+    background: var(--vx-foot); color: #d9c8b6;
+    margin-top: 64px;
+    font-family: var(--vx-sans);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .vx-foot__in {
+    max-width: 1180px; margin: 0 auto; padding: 44px 16px 26px;
+    display: flex; flex-wrap: wrap; gap: 32px 56px; justify-content: space-between;
+  }
+  .vx-foot__brand { font-family: var(--vx-serif); font-size: 22px; color: #f6ead8; margin: 0 0 8px; font-weight: 600; }
+  html[data-lang="ta"] .vx-foot__brand { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 18px; }
+  .vx-foot__tag { font-size: 13px; margin: 0; color: #cdb8a3; max-width: 360px; line-height: 1.6; }
+  .vx-foot__cols { display: flex; gap: 48px; }
+  .vx-foot h4 { font: 600 13px/1 var(--vx-sans); color: #f6ead8; margin: 0 0 14px; letter-spacing: 0.02em; }
+  .vx-foot ul { list-style: none; margin: 0; padding: 0; }
+  .vx-foot li { margin: 0 0 10px; }
+  .vx-foot a { color: #d9c8b6; text-decoration: none; font-size: 13px; }
+  .vx-foot a:hover { color: #fff; text-decoration: underline; }
+  .vx-foot__base {
+    max-width: 1180px; margin: 0 auto; padding: 16px;
+    border-top: 1px solid rgba(255, 240, 220, 0.12);
+    font-size: 12px; color: #b5a08c;
+  }
+
+  /* ── home page ───────────────────────────────────────────────────────── */
+  .vx-wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+  .vx-eyebrow {
+    font: 600 11.5px/1.3 var(--vx-sans);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--vx-gold); margin: 0 0 16px;
+  }
+  html[data-lang="ta"] .vx-eyebrow { letter-spacing: 0.04em; font-size: 13px; }
+  .vx-hero {
+    display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 56px; align-items: center;
+    padding: 64px 0 52px;
+  }
+  .vx-hero h1 { font-size: clamp(2.5rem, 6vw, 4rem); line-height: 1.04; margin: 0 0 22px; font-weight: 600; }
+  html[data-lang="ta"] .vx-hero h1 { font-size: clamp(1.9rem, 4.6vw, 3rem); line-height: 1.3; }
+  .vx-lead { font-size: 17px; line-height: 1.65; color: var(--vx-ink-2); margin: 0 0 30px; max-width: 540px; }
+  .vx-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
+  .vx-sample {
+    background: var(--vx-paper); border: 1px solid var(--vx-line);
+    box-shadow: var(--vx-shadow); padding: 22px 22px 18px;
+  }
+  .vx-sample__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; gap: 10px; }
+  .vx-sample__head b { font-family: var(--vx-serif); font-size: 21px; color: var(--vx-head); font-weight: 600; }
+  html[data-lang="ta"] .vx-sample__head b { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 17px; }
+  .vx-sample__head span { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vx-ink-2); }
+  .vx-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, minmax(62px, auto));
+    border: 2px solid var(--vx-accent);
+  }
+  .vx-grid > div {
+    border: 1px solid color-mix(in srgb, var(--vx-accent) 55%, transparent);
+    padding: 7px 7px 6px; min-width: 0;
+    font-size: 10.5px; color: var(--vx-ink-2); line-height: 1.35;
+  }
+  .vx-grid > div b { display: block; margin-top: 3px; color: var(--vx-accent-text); font-size: 11px; font-weight: 700; }
+  .vx-grid .vx-grid__mid {
+    grid-column: 2 / 4; grid-row: 2 / 4;
+    background: var(--vx-sand);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  .vx-grid__mid strong { font-family: var(--vx-serif); font-size: 20px; color: var(--vx-head); font-weight: 600; }
+  html[data-lang="ta"] .vx-grid__mid strong { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 16px; }
+
+  .vx-divider { display: flex; align-items: center; gap: 16px; color: var(--vx-gold); }
+  .vx-divider::before, .vx-divider::after { content: ""; flex: 1; height: 1px; background: var(--vx-line-2); }
+  .vx-divider svg { width: 20px; height: 20px; }
+
+  .vx-section { padding: 72px 0; }
+  .vx-center { text-align: center; }
+  .vx-h2 { font-size: clamp(2rem, 4.4vw, 2.75rem); line-height: 1.12; margin: 0 0 12px; }
+  html[data-lang="ta"] .vx-h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); line-height: 1.35; }
+  .vx-sub { color: var(--vx-ink-2); font-size: 15.5px; margin: 0 0 40px; line-height: 1.6; }
+
+  .vx-features { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; text-align: left; }
+  .vx-feature {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--vx-paper); border: 1px solid var(--vx-line);
+    padding: 24px 18px 26px;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  .vx-feature:hover { border-color: var(--vx-gold); transform: translateY(-2px); box-shadow: var(--vx-shadow); }
+  .vx-feature svg { width: 24px; height: 24px; stroke: var(--vx-accent-text); stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .vx-feature h3 { font-family: var(--vx-serif); font-size: 21px; color: var(--vx-head); margin: 14px 0 10px; font-weight: 600; }
+  html[data-lang="ta"] .vx-feature h3 { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 16px; }
+  .vx-feature p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--vx-ink-2); }
+
+  .vx-band { background: var(--vx-band); color: #f3e3cf; }
+  .vx-band .vx-h2 { color: #fbf1e3; margin-bottom: 44px; }
+  .vx-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .vx-step i {
+    display: block; font-style: normal;
+    font-family: var(--vx-serif); font-size: 44px; line-height: 1; color: #d6ad5f; margin-bottom: 16px;
+  }
+  .vx-step h3 { font: 600 16px/1.3 var(--vx-sans); color: #fff6ea; margin: 0 0 10px; }
+  .vx-step p { margin: 0; font-size: 13.5px; line-height: 1.65; color: #e3cfbb; }
+
+  .vx-pan { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 48px; align-items: center; }
+  .vx-pan h2 { font-size: clamp(1.9rem, 3.8vw, 2.5rem); line-height: 1.15; margin: 0 0 16px; }
+  html[data-lang="ta"] .vx-pan h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.4; }
+  .vx-pan p { color: var(--vx-ink-2); line-height: 1.65; font-size: 15px; margin: 0 0 18px; }
+  .vx-link { color: var(--vx-accent-text); font-weight: 600; font-size: 14px; text-underline-offset: 3px; }
+  .vx-cells {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--vx-line); background: var(--vx-line); gap: 1px;
+  }
+  .vx-cell { background: var(--vx-paper); padding: 16px 16px 18px; min-width: 0; }
+  .vx-cell span { display: block; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vx-ink-2); margin-bottom: 8px; }
+  html[data-lang="ta"] .vx-cell span { letter-spacing: 0.02em; font-size: 12px; }
+  .vx-cell b { font-family: var(--vx-serif); font-size: 20px; color: var(--vx-head); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+  html[data-lang="ta"] .vx-cell b { font-family: 'Noto Serif Tamil', var(--vx-serif); font-size: 15px; }
+  .vx-cell small { display: block; margin-top: 4px; font-size: 11.5px; color: var(--vx-ink-2); }
+  .vx-pan-place { font-size: 12.5px; color: var(--vx-ink-2); margin-top: 10px; }
+
+  .vx-end .vx-sub { margin-bottom: 26px; }
+  .vx-end .vx-actions { justify-content: center; }
+
+  /* The birth form, on the home page, as a section of its own. */
+  .vx-formsec { padding: 72px 0 8px; scroll-margin-top: 70px; }
+  .layout.vx-landing { grid-template-columns: 1fr !important; max-width: 720px; margin: 0 auto; }
+  .layout.vx-landing .results { display: none; }
+  .layout.vx-landing .form-card { position: static; }
+
+  @media (max-width: 980px) {
+    .vx-hero { grid-template-columns: 1fr; gap: 40px; padding-top: 40px; }
+    .vx-sample { max-width: 460px; }
+    .vx-features { grid-template-columns: repeat(2, 1fr); }
+    .vx-pan { grid-template-columns: 1fr; gap: 28px; }
+  }
+  @media (max-width: 640px) {
+    .vx-section { padding: 52px 0; }
+    .vx-features { grid-template-columns: 1fr; }
+    .vx-steps { grid-template-columns: 1fr; gap: 28px; }
+    .vx-cells { grid-template-columns: repeat(2, 1fr); }
+    .vx-actions .vx-btn { flex: 1 1 100%; }
+    .vx-foot__cols { gap: 36px; }
+    .vx-grid > div { padding: 5px; font-size: 9.5px; }
+  }
+</style>

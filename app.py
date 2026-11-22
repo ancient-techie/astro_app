@@ -674,7 +674,7 @@ THEME_SWITCH_CSS = """
 
 # Inline <head> snippet, the twin of LANG_BOOT_SCRIPT: stamps the saved theme
 # onto <html> before the first paint, so a light-theme user never sees a flash
-# of dark. Dark is the default - "auto" is a choice, not the fallback.
+# of the wrong one. Light is the default - "auto" is a choice, not the fallback.
 #
 # Two attributes, deliberately: data-theme carries the *resolved* theme, which
 # is all the CSS keys off, and data-theme-pref carries what the user actually
@@ -684,7 +684,7 @@ THEME_BOOT_SCRIPT = """
   (function () {
     var KEY = "vedic-theme";
     var root = document.documentElement;
-    var pref = "dark";
+    var pref = "light";
     try {
       var saved = window.localStorage.getItem(KEY);
       if (saved === "dark" || saved === "light" || saved === "auto") pref = saved;
@@ -708,7 +708,7 @@ THEME_BOOT_SCRIPT = """
       root.setAttribute("data-theme-pref", pref);
       root.setAttribute("data-theme", theme);
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", theme === "light" ? "#f7f2e7" : "#0b0d17");
+      if (meta) meta.setAttribute("content", theme === "light" ? "#faf6ef" : "#161011");
       if (theme !== last) {
         last = theme;
         for (var i = 0; i < listeners.length; i++) {
@@ -718,7 +718,7 @@ THEME_BOOT_SCRIPT = """
     }
     stamp();
 
-    var ORDER = ["dark", "light", "auto"];
+    var ORDER = ["light", "dark", "auto"];
     function set(p) {
       if (ORDER.indexOf(p) === -1) return;
       pref = p;
@@ -848,6 +848,75 @@ try:
 except FileNotFoundError:
     print("WARNING: glossary.html not found - /glossary will show a placeholder")
     GLOSSARY_HTML = "<!doctype html><meta charset=utf-8><title>Vocabulary</title><p>glossary.html is missing. __GLOSSARY__</p>"
+
+
+# ---------------------------------------------------------------------------
+# The shell: one theme, one site bar, one footer, on every page
+# ---------------------------------------------------------------------------
+# Each page was written with its own header and its own palette. Rather than
+# edit eight heads in step, every HTML response passes through
+# _apply_shell on the way out: ui_theme.html goes in just before </head> (so
+# it follows the page's own <style> and wins), ui_shell.html right after
+# <body>, ui_footer.html just before </body>. The page's font names are
+# rewritten here too - 'Cinzel' and 'Lato' both become 'Inter', and the
+# theme gives the serif back to titles alone.
+#
+# The playground is left out on purpose: /play-with-chart must stay
+# byte-identical to its file (see CLAUDE.md).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read_part(name):
+    try:
+        with open(os.path.join(_HERE, name), "r", encoding="utf-8") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        print("WARNING: %s not found - pages will render without it" % name)
+        return ""
+
+
+UI_THEME_HTML = _read_part("ui_theme.html")
+UI_SHELL_HTML = _read_part("ui_shell.html")
+UI_FOOTER_HTML = _read_part("ui_footer.html")
+
+_SHELL_SKIP = ("/play-with-chart",)
+_OLD_FONT_LINK = re.compile(r'<link[^>]+fonts\.googleapis\.com/css2\?family=Cinzel[^>]*>\s*')
+_BODY_OPEN = re.compile(r"<body[^>]*>", re.I)
+
+
+def shell_page(html):
+    """The page with the shared theme, site bar and footer folded in."""
+    if 'id="vxSite"' in html or "</head>" not in html:
+        return html
+    body = _BODY_OPEN.search(html)
+    end = html.rfind("</body>")
+    if not body or end < body.end():
+        return html
+    from datetime import date as _date
+    footer = UI_FOOTER_HTML.replace("__YEAR__", str(_date.today().year))
+    html = html[:body.end()] + "\n" + UI_SHELL_HTML + html[body.end():end] + footer + html[end:]
+    head_extra = UI_THEME_HTML
+    # The standalone pages only stamp a theme; the shared boot script also
+    # answers the bar's toggle and keeps light as the default.
+    if "window.VedicTheme" not in html:
+        head_extra = THEME_BOOT_SCRIPT + head_extra
+    html = html.replace("</head>", head_extra + "</head>", 1)
+    html = _OLD_FONT_LINK.sub("", html)
+    for old in ("'Cinzel'", '"Cinzel"', "Cinzel,serif", "'Lato'"):
+        html = html.replace(old, "'Inter'" if old != "Cinzel,serif" else "Inter,serif")
+    return html
+
+
+@app.after_request
+def _apply_shell(resp):
+    if (request.path in _SHELL_SKIP or resp.direct_passthrough
+            or resp.mimetype != "text/html" or 300 <= resp.status_code < 400):
+        return resp
+    html = resp.get_data(as_text=True)
+    shelled = shell_page(html)
+    if shelled is not html:
+        resp.set_data(shelled)
+    return resp
 
 
 @app.route("/play-with-chart")
@@ -3099,7 +3168,7 @@ PAGE_TEMPLATE = """
 </head>
 <body>
 
-<div class="app-bar">
+<div class="app-bar vx-hide">
   <img class="app-bar__icon" src="/icon-192.png" alt="">
   <div class="app-bar__titles">
     <p class="app-bar__title" data-i18n="app.title">Vedic Birth Chart</p>
@@ -3116,7 +3185,90 @@ PAGE_TEMPLATE = """
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
 
-<div class="layout{% if charts %} form-collapsed{% endif %}">
+{% if not charts and not error %}
+<main class="vx-home">
+  <div class="vx-wrap">
+    <section class="vx-hero">
+      <div>
+        <p class="vx-eyebrow" data-i18n="vx.eyebrow">Jyotisha &middot; the science of light</p>
+        <h1 data-i18n="vx.hero_title">Your birth chart, calculated the classical way.</h1>
+        <p class="vx-lead" data-i18n="vx.hero_lead">Precise sidereal horoscopes with Lahiri ayanamsa &mdash; drawn in South or North Indian style, in English or Tamil. Tools for families, astrologers and everyday decisions.</p>
+        <div class="vx-actions">
+          <a class="vx-btn vx-btn--solid" href="#generate" data-i18n="vx.hero_cta">Generate my chart &mdash; free</a>
+          <a class="vx-btn vx-btn--line" href="/porutham" data-i18n="vx.hero_match">Check marriage match</a>
+        </div>
+      </div>
+      <div class="vx-sample" aria-hidden="true">
+        <div class="vx-sample__head"><b data-i18n="vx.sample_title">Rasi Chart</b><span data-i18n="form.style_south">South Indian</span></div>
+        <div class="vx-grid">
+          <div><span data-i18n-term="sign:Pisces">Pisces</span><b><span data-i18n-term="planet_abbr:Ketu">Ke</span></b></div>
+          <div><span data-i18n-term="sign:Aries">Aries</span><b><span data-i18n-term="planet_abbr:Sun">Su</span> <span data-i18n-term="planet_abbr:Mercury">Me</span></b></div>
+          <div><span data-i18n-term="sign:Taurus">Taurus</span><b><span data-i18n-term="planet_abbr:Venus">Ve</span></b></div>
+          <div><span data-i18n-term="sign:Gemini">Gemini</span></div>
+          <div><span data-i18n-term="sign:Aquarius">Aquarius</span><b><span data-i18n-term="planet_abbr:Saturn">Sa</span></b></div>
+          <div class="vx-grid__mid"><strong data-i18n="vx.sample_center">Rasi</strong><span data-i18n="vx.sample_note">Sample chart</span></div>
+          <div><span data-i18n-term="sign:Cancer">Cancer</span><b data-i18n="vx.lagna">Lagna</b></div>
+          <div><span data-i18n-term="sign:Capricorn">Capricorn</span></div>
+          <div><span data-i18n-term="sign:Leo">Leo</span><b><span data-i18n-term="planet_abbr:Jupiter">Ju</span></b></div>
+          <div><span data-i18n-term="sign:Sagittarius">Sagittarius</span></div>
+          <div><span data-i18n-term="sign:Scorpio">Scorpio</span><b><span data-i18n-term="planet_abbr:Moon">Mo</span></b></div>
+          <div><span data-i18n-term="sign:Libra">Libra</span><b><span data-i18n-term="planet_abbr:Mars">Ma</span></b></div>
+          <div><span data-i18n-term="sign:Virgo">Virgo</span><b><span data-i18n-term="planet_abbr:Rahu">Ra</span></b></div>
+        </div>
+      </div>
+    </section>
+    <div class="vx-divider"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M12 2.5c.7 5.2 4.3 8.8 9.5 9.5-5.2.7-8.8 4.3-9.5 9.5-.7-5.2-4.3-8.8-9.5-9.5 5.2-.7 8.8-4.3 9.5-9.5z"/></svg></div>
+    <section class="vx-section vx-center">
+      <h2 class="vx-h2" data-i18n="vx.feat_title">Everything a family astrologer offers</h2>
+      <p class="vx-sub" data-i18n="vx.feat_lead">Five classical tools in one place &mdash; private, and free.</p>
+      <div class="vx-features">
+        <a class="vx-feature" href="#generate">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><rect x="8.5" y="8.5" width="7" height="7"/></svg>
+          <h3 data-i18n="vx.nav_chart">Birth Chart</h3>
+          <p data-i18n="vx.f_chart_d">Rasi and Navamsa in South Indian, North Indian, or both side by side.</p>
+        </a>
+        <a class="vx-feature" href="/porutham">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="4.5"/><circle cx="15" cy="12" r="4.5"/></svg>
+          <h3 data-i18n="nav.porutham">10 Porutham</h3>
+          <p data-i18n="vx.f_por_d">Traditional marriage matching across all ten poruthams, explained clearly.</p>
+        </a>
+        <a class="vx-feature" href="/panchang">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>
+          <h3 data-i18n="pan.open">Panchangam</h3>
+          <p data-i18n="vx.f_pan_d">Daily tithi, nakshatra, yoga, karana and Rahu kalam for your city.</p>
+        </a>
+        <a class="vx-feature" href="/muhurtham">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+          <h3 data-i18n="mu.open">Muhurtham</h3>
+          <p data-i18n="vx.f_mu_d">Find auspicious times for weddings, griha pravesam and a new vehicle.</p>
+        </a>
+        <a class="vx-feature" href="/sky">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-5.5 9.5-5.5S21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+          <h3 data-i18n="vx.f_sky_t">Sky Today</h3>
+          <p data-i18n="vx.f_sky_d">Live sidereal positions of all nine grahas, right now.</p>
+        </a>
+      </div>
+    </section>
+  </div>
+  <section class="vx-section vx-band">
+    <div class="vx-wrap">
+      <h2 class="vx-h2 vx-center" data-i18n="vx.steps_title">Your chart in three steps</h2>
+      <div class="vx-steps">
+        <div class="vx-step"><i>I</i><h3 data-i18n="vx.s1_t">Enter birth details</h3><p data-i18n="vx.s1_d">Name, date and time of birth &mdash; as recorded on the birth certificate or family records.</p></div>
+        <div class="vx-step"><i>II</i><h3 data-i18n="vx.s2_t">Confirm the place</h3><p data-i18n="vx.s2_d">Type the birth city and confirm it; latitude and longitude are filled in for you.</p></div>
+        <div class="vx-step"><i>III</i><h3 data-i18n="vx.s3_t">Receive your chart</h3><p data-i18n="vx.s3_d">Your Rasi chart appears at once &mdash; save the details, share it with your astrologer, or download it as a PDF.</p></div>
+      </div>
+    </div>
+  </section>
+  <section class="vx-formsec" id="generate">
+    <div class="vx-wrap vx-center">
+      <p class="vx-eyebrow" data-i18n="vx.form_eyebrow">Begin here</p>
+      <h2 class="vx-h2" data-i18n="vx.s1_t">Enter birth details</h2>
+    </div>
+  </section>
+</main>
+{% endif %}
+<div class="layout{% if charts %} form-collapsed{% endif %}{% if not charts and not error %} vx-landing{% endif %}">
   <form class="card form-card{% if charts %} collapsed{% endif %}" method="POST" action="/generate">
     {% if charts %}
     <div class="form-head">
@@ -4275,6 +4427,107 @@ PAGE_TEMPLATE = """
     {% endif %}
   </div>
 </div>
+
+{% if not charts and not error %}
+<div class="vx-home">
+  <section class="vx-section">
+    <div class="vx-wrap vx-pan">
+      <div>
+        <p class="vx-eyebrow" data-i18n="vx.pan_eyebrow">Today&rsquo;s panchangam</p>
+        <h2 data-i18n="vx.pan_title">Plan your day with the five limbs of time</h2>
+        <p data-i18n="vx.pan_lead">Worked out daily for your place. Know the tithi, nakshatra and Rahu kalam before you begin anything important.</p>
+        <a class="vx-link" href="/panchang" data-i18n="vx.pan_open">Open full Panchangam &rarr;</a>
+      </div>
+      <div>
+        <div class="vx-cells" id="vxPanCells"></div>
+        <p class="vx-pan-place" id="vxPanPlace"></p>
+      </div>
+    </div>
+  </section>
+  <section class="vx-section vx-center vx-end" style="background: var(--vx-sand);">
+    <div class="vx-wrap">
+      <h2 class="vx-h2" data-i18n="vx.end_title">Begin with your Rasi chart</h2>
+      <p class="vx-sub" data-i18n="vx.end_lead">Free, private, and ready in seconds. Install the app to open it like any other on your phone.</p>
+      <div class="vx-actions">
+        <a class="vx-btn vx-btn--solid" href="#generate" data-i18n="vx.end_cta">Generate my chart</a>
+        <button type="button" class="vx-btn vx-btn--line" id="vxInstall" hidden data-i18n="vx.install">Install the app</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script>
+  // Today's panchangam, for the place the Panchangam page last used (its own
+  // localStorage key), else Chennai - the page's own default.
+  (function () {
+    var box = document.getElementById("vxPanCells");
+    var where = document.getElementById("vxPanPlace");
+    if (!box) return;
+    var place = { place: "Chennai", lat: 13.0827, lng: 80.2707, tz: "Asia/Kolkata", rising: "drik" };
+    try {
+      var saved = JSON.parse(localStorage.getItem("vedic-panchang-place") || "null");
+      if (saved && isFinite(saved.lat) && isFinite(saved.lng) && saved.tz) place = saved;
+    } catch (err) {}
+    var data = null, failed = false;
+
+    // The times arrive as the place's own wall clock, offset attached, so
+    // the hour and minute can be read straight off the string.
+    function hm(iso) { return iso ? iso.slice(11, 16) : "-"; }
+    function running(rows) {
+      var now = Date.now();
+      for (var i = 0; i < rows.length; i++) {
+        if (Date.parse(rows[i].start) <= now && now < Date.parse(rows[i].end)) return rows[i];
+      }
+      return rows[0];
+    }
+    function cell(label, value, sub) {
+      var c = document.createElement("div");
+      c.className = "vx-cell";
+      var k = document.createElement("span"); k.textContent = I18N.t(label); c.appendChild(k);
+      var v = document.createElement("b"); v.textContent = value; c.appendChild(v);
+      if (sub) { var s = document.createElement("small"); s.textContent = sub; c.appendChild(s); }
+      return c;
+    }
+    function render() {
+      var keys = ["pan.tithi", "pan.nakshatra", "pan.yoga", "pan.karana", "pan.rahu", "pan.sunrise"];
+      box.textContent = "";
+      if (!data) {
+        keys.forEach(function (k) { box.appendChild(cell(k, failed ? "-" : "...")); });
+        where.textContent = failed ? I18N.t("vx.pan_error") : I18N.t("vx.pan_loading");
+        return;
+      }
+      var d = data, th = running(d.tithi), nk = running(d.nakshatra), yg = running(d.yoga), kr = running(d.karana);
+      var upto = function (r) { return I18N.t("pan.upto", { time: hm(r.end) }); };
+      box.appendChild(cell("pan.tithi", I18N.term("paksha", th.paksha) + " " + I18N.term("tithi", th.name), upto(th)));
+      box.appendChild(cell("pan.nakshatra", I18N.term("nakshatra", nk.name), upto(nk)));
+      box.appendChild(cell("pan.yoga", I18N.term("yoga", yg.name), upto(yg)));
+      box.appendChild(cell("pan.karana", I18N.term("karana", kr.name), upto(kr)));
+      box.appendChild(cell("pan.rahu", hm(d.rahu_kalam.start) + " - " + hm(d.rahu_kalam.end)));
+      box.appendChild(cell("pan.sunrise", hm(d.sunrise), I18N.t("pan.sunset") + " " + hm(d.sunset)));
+      where.textContent = I18N.t("vx.pan_place", { place: place.place || "" }) + " · " + I18N.term("vara", d.vara);
+    }
+    render();
+    fetch("/panchang-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: place.lat, lng: place.lng, tz: place.tz, rising: place.rising || "drik" })
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) { if (d && d.tithi) { data = d; } else { failed = true; } render(); })
+      .catch(function () { failed = true; render(); });
+    I18N.onChange(render);
+
+    // "Install the app" borrows the hidden app bar's install button, which
+    // already holds the browser's deferred prompt.
+    var mine = document.getElementById("vxInstall");
+    var theirs = document.getElementById("installBtn");
+    if (mine && theirs) {
+      var sync = function () { mine.hidden = !theirs.classList.contains("visible"); };
+      new MutationObserver(sync).observe(theirs, { attributes: true, attributeFilter: ["class"] });
+      sync();
+      mine.addEventListener("click", function () { theirs.click(); });
+    }
+  })();
+</script>
+{% endif %}
 
 <script>
   // "Confirm place" - geocode the typed birth city on the server (geopy /

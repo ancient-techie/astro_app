@@ -449,6 +449,20 @@ thought.
   `<svg class="ico"><use href="#i-menu"/></svg>`. The nav used to be
   labelled with emoji, which every platform draws differently.
 
+**How it is applied (UI_revamp branch):** not by template variables but by
+one `@app.after_request` hook, `_apply_shell` (grep `# The shell: one
+theme`). Every `text/html` response except `/play-with-chart` gets
+`ui_theme.html` before `</head>`, `ui_shell.html` (strip + site bar) after
+`<body>` and `ui_footer.html` before `</body>`; the hook also rewrites
+`'Cinzel'`/`'Lato'` to `'Inter'` and drops the old font `<link>`. Each page's
+own lang/theme buttons and "Back" links are hidden by CSS - the bar's pair
+drives both runtimes. The theme restates every page's tokens (`--bg`,
+`--pan-*`, `--sky-*`, `--vc-*`, `--mu-*`, `--gl-*`) and recolours the
+jyotichart SVGs by CSS only, so chart bytes and the PDF are unchanged. The
+home page (`/` with no chart) is the `{% if not charts and not error %}`
+blocks around `.layout` in `PAGE_TEMPLATE`; its strings are `vx.*`. Light is
+now the default theme.
+
 **Typography rule:** Cinzel (`--font-display`) is for page and section
 titles only. Labels, buttons, tables and badges are `--font-ui`. A rule in
 the page's own CSS that sets Cinzel on a small element is overridden by the

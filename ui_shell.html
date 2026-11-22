@@ -1,0 +1,88 @@
+<!-- The site strip and bar, injected right after <body> on every page by
+     _apply_shell. Its language and theme buttons are the only ones left
+     visible: each page's own pair is hidden by ui_theme.html, and both
+     runtimes find buttons by attribute (data-lang-btn, data-theme-btn), so
+     this pair drives them with no extra wiring. -->
+<div class="vx-site" id="vxSite">
+  <div class="vx-strip">
+    <span data-i18n="app.subtitle">Sidereal &middot; Lahiri ayanamsa</span>
+    <span data-i18n="vx.strip_styles">South &amp; North Indian charts</span>
+    <span>English &middot; &#2980;&#2990;&#3007;&#2996;&#3021;</span>
+  </div>
+  <header class="vx-bar">
+    <div class="vx-bar__in">
+      <a class="vx-brand" href="/">
+        <svg viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.5" y="1.5" width="25" height="25" stroke="#9b7226"/>
+          <path d="M1.5 8h25M1.5 20h25M8 1.5v25M20 1.5v25" stroke="#9b7226"/>
+          <rect x="8" y="8" width="12" height="12" fill="rgba(155,114,38,0.12)" stroke="#9b7226"/>
+        </svg>
+        <span data-i18n="app.title">Vedic Birth Chart</span>
+      </a>
+      <nav class="vx-nav" id="vxNav" data-i18n-attr="aria-label:vx.menu" aria-label="Menu">
+        <a href="/" data-vx-nav="/ /generate" data-i18n="vx.nav_chart">Birth Chart</a>
+        <a href="/porutham" data-vx-nav="/porutham" data-i18n="nav.porutham">10 Porutham</a>
+        <a href="/panchang" data-vx-nav="/panchang" data-i18n="pan.open">Panchangam</a>
+        <a href="/muhurtham" data-vx-nav="/muhurtham" data-i18n="mu.open">Muhurtham</a>
+        <a href="/sky" data-vx-nav="/sky" data-i18n="sky.open">Sky</a>
+        <a href="/glossary" data-vx-nav="/glossary" data-i18n="gl.open">Vocabulary</a>
+      </nav>
+      <div class="vx-tools">
+        <div class="lang-switch vx-lang" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+          <button type="button" data-lang-btn="en">EN</button>
+          <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+        </div>
+        <button type="button" class="theme-switch vx-theme" data-theme-btn
+                data-i18n-attr="aria-label:theme.toggle;title:theme.toggle" aria-label="Switch the theme">
+          <svg class="th-ico th-dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.3A8.6 8.6 0 0 1 9.7 3.5 8.5 8.5 0 1 0 20.5 14.3z"/></svg>
+          <svg class="th-ico th-light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4V5M12 19v2.6M4.2 12H1.6M22.4 12h-2.6M6.5 6.5 4.6 4.6M19.4 19.4l-1.9-1.9M17.5 6.5l1.9-1.9M4.6 19.4l1.9-1.9"/></svg>
+          <svg class="th-ico th-auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><path d="M12 3.4a8.6 8.6 0 0 1 0 17.2z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <a class="vx-btn vx-btn--solid vx-btn--sm vx-cta" href="/#generate" data-i18n="form.submit">Generate Chart</a>
+        <button type="button" class="vx-menu-btn" id="vxMenuBtn" aria-expanded="false" aria-controls="vxNav"
+                data-i18n-attr="aria-label:vx.menu" aria-label="Menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+</div>
+<script>
+  (function () {
+    var site = document.getElementById("vxSite");
+    // The standalone pages pad <body>; pull the bar and the footer out to
+    // the edges rather than restyle each page's body.
+    function bleed() {
+      var cs = getComputedStyle(document.body);
+      var l = parseFloat(cs.paddingLeft) || 0, r = parseFloat(cs.paddingRight) || 0;
+      var t = parseFloat(cs.paddingTop) || 0, b = parseFloat(cs.paddingBottom) || 0;
+      site.style.margin = (-t) + "px " + (-r) + "px " + (t ? 16 : 0) + "px " + (-l) + "px";
+      var foot = document.querySelector(".vx-foot");
+      if (foot) foot.style.margin = "64px " + (-r) + "px " + (-b) + "px " + (-l) + "px";
+    }
+    bleed();
+    document.addEventListener("DOMContentLoaded", bleed);
+    window.addEventListener("resize", bleed);
+    var btn = document.getElementById("vxMenuBtn");
+    var path = location.pathname.replace(/\/+$/, "") || "/";
+    site.querySelectorAll("[data-vx-nav]").forEach(function (a) {
+      if (a.getAttribute("data-vx-nav").split(" ").indexOf(path) !== -1) a.setAttribute("aria-current", "page");
+    });
+    function close() { site.classList.remove("vx-open"); btn.setAttribute("aria-expanded", "false"); }
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = site.classList.toggle("vx-open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("click", function (e) { if (!site.contains(e.target)) close(); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    // On the home page the form is on this same page: close the menu and let
+    // the anchor scroll, rather than reloading.
+    site.querySelectorAll('a[href="/#generate"]').forEach(function (a) {
+      a.addEventListener("click", function (e) {
+        var target = document.getElementById("generate");
+        if (target) { e.preventDefault(); close(); target.scrollIntoView({ behavior: "smooth" }); }
+      });
+    });
+  })();
+</script>
