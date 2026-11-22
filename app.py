@@ -61,6 +61,7 @@ import jathagam
 import vargas
 import panchang
 import muhurtham
+import glossary
 
 try:
     from geopy.geocoders import Nominatim
@@ -227,13 +228,14 @@ MANIFEST_JSON = json.dumps({
 #  - POST requests (/generate, the chart form submit) always need the
 #    server and are never intercepted.
 SERVICE_WORKER_JS = """
-const CACHE_NAME = "vedic-chart-v18";
+const CACHE_NAME = "vedic-chart-v19";
 const SHELL_URLS = [
   "/",
   "/play-with-chart",
   "/sky",
   "/panchang",
   "/muhurtham",
+  "/glossary",
   "/i18n.js",
   "/manifest.json",
   "/icon-192.png",
@@ -834,6 +836,18 @@ try:
 except FileNotFoundError:
     print("WARNING: muhurtham.html not found - /muhurtham will show a placeholder")
     MUHURTHAM_HTML = "<!doctype html><meta charset=utf-8><title>Muhurtham</title><p>muhurtham.html is missing. __MU_JANMA__</p>"
+
+
+# The vocabulary page. Its words are in glossary.py; the reference lists
+# beside them are built at request time from this file's own tables, and both
+# arrive in the page through __GLOSSARY__.
+_GLOSSARY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "glossary.html")
+try:
+    with open(_GLOSSARY_PATH, "r", encoding="utf-8") as _f:
+        GLOSSARY_HTML = _f.read()
+except FileNotFoundError:
+    print("WARNING: glossary.html not found - /glossary will show a placeholder")
+    GLOSSARY_HTML = "<!doctype html><meta charset=utf-8><title>Vocabulary</title><p>glossary.html is missing. __GLOSSARY__</p>"
 
 
 @app.route("/play-with-chart")
@@ -2596,6 +2610,15 @@ PAGE_TEMPLATE = """
     background: var(--primary-grad);
     display: inline-block;
   }
+  /* The "?" beside a section title opens that word on /glossary. */
+  .gl-help {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; flex-shrink: 0;
+    border-radius: 50%; border: 1px solid rgba(212,175,55,0.5);
+    font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0;
+    color: var(--gold); text-decoration: none; opacity: 0.75;
+  }
+  .gl-help:hover { opacity: 1; background: rgba(212,175,55,0.14); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td {
@@ -3088,6 +3111,7 @@ PAGE_TEMPLATE = """
   <a class="porutham-btn" href="/sky">&#129680; <span data-i18n="sky.open">Sky</span></a>
   <a class="porutham-btn" href="/panchang">&#128197; <span data-i18n="pan.open">Panchangam</span></a>
   <a class="porutham-btn" href="/muhurtham">&#10047; <span data-i18n="mu.open">Muhurtham</span></a>
+  <a class="porutham-btn" href="/glossary">&#128214; <span data-i18n="gl.open">Vocabulary</span></a>
   <a class="admin-btn" href="/admin">&#9881; <span data-i18n="nav.admin">Admin</span></a>
   <button id="installBtn" class="install-btn" type="button">&#128241; <span data-i18n="nav.install">Install</span></button>
 </div>
@@ -3225,7 +3249,7 @@ PAGE_TEMPLATE = """
       </div>
       <small class="hint" data-i18n="chart.retro_hint">Retrograde planets are marked "(R)" on the Rashi (D1) charts. Navamsa (D9) doesn't conventionally mark retrograde.</small>
 
-      <div class="section-title"><span data-i18n="section.star">Planetary &amp; Star (Nakshatra) Details</span></div>
+      <div class="section-title"><span data-i18n="section.star">Planetary &amp; Star (Nakshatra) Details</span><a class="gl-help" href="/glossary#nakshatra" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="star.hint">Combust planets (too close to the Sun) are marked with \U0001F525 next to their name.</small>
       <div class="table-wrap">
         <table>
@@ -3254,7 +3278,7 @@ PAGE_TEMPLATE = """
         </table>
       </div>
 
-      <div class="section-title"><span data-i18n="section.dasha">Vimshottari Mahadasha</span>
+      <div class="section-title"><span data-i18n="section.dasha">Vimshottari Mahadasha</span><a class="gl-help" href="/glossary#vimshottari" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a>
         <button type="button" id="dashaClockBtn" class="dc-open-btn">
           <span class="dc-btn-glyph" aria-hidden="true">&#9201;</span><span data-i18n="dc.open">Dasha Clock</span>
         </button>
@@ -3288,7 +3312,7 @@ PAGE_TEMPLATE = """
         lords) based on the Moon's Nakshatra at birth.
       </small>
 
-      <div class="section-title"><span data-i18n="section.houses">Houses Involved</span></div>
+      <div class="section-title"><span data-i18n="section.houses">Houses Involved</span><a class="gl-help" href="/glossary#bhava" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="houses.hint">
         Tap a Mahadasha row to see the houses its lord activates (placement,
         aspects, and lordship - or for Rahu/Ketu, the houses ruled by every
@@ -3302,7 +3326,7 @@ PAGE_TEMPLATE = """
       </div>
       <script id="dashaHouseData" type="application/json">{{ dasha_house_json | safe }}</script>
 
-      <div class="section-title"><span data-i18n="section.gochar">Gochar (Transit) for this Period</span></div>
+      <div class="section-title"><span data-i18n="section.gochar">Gochar (Transit) for this Period</span><a class="gl-help" href="/glossary#gochar" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="gochar.hint">
         Tap any Dasha, Bhukti, Antaram or Sookshma row above, then pick a date
         inside that period to see where the grahas were transiting on that day.
@@ -3341,7 +3365,7 @@ PAGE_TEMPLATE = """
       {{ dasha_clock | safe }}
 
       {% if sade_sati %}{% set ss = sade_sati %}
-      <div class="section-title"><span data-i18n="section.sade_sati">Sade Sati (Ezharai Sani)</span></div>
+      <div class="section-title"><span data-i18n="section.sade_sati">Sade Sati (Ezharai Sani)</span><a class="gl-help" href="/glossary#sade_sati" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="ss.hint">
         Saturn's gochar counted from the natal Moon's rasi. Sade Sati runs while
         Saturn passes the 12th, 1st and 2nd rasis from the Moon - rising, peak
@@ -3426,7 +3450,7 @@ PAGE_TEMPLATE = """
       </div>
       {% endif %}
 
-      <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span></div>
+      <div class="section-title"><span data-i18n="section.marriage">3-7-11 Connection (Marriage)</span><a class="gl-help" href="/glossary#three_seven_eleven" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="marriage.hint">
         For marriage timing, the Dasha, Bhukti and Antaram lords should each
         connect to the 3rd, 7th or 11th house - by sitting in it, aspecting it,
@@ -3439,7 +3463,7 @@ PAGE_TEMPLATE = """
       <div id="marriageBox" class="houses-box"></div>
       <script id="marriageData" type="application/json">{{ marriage_json | safe }}</script>
 
-      <div class="section-title"><span data-i18n="section.conj_degree">Conjunctions &ndash; By Degree (Orb)</span></div>
+      <div class="section-title"><span data-i18n="section.conj_degree">Conjunctions &ndash; By Degree (Orb)</span><a class="gl-help" href="/glossary#orb" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="conj_degree.hint">
         Grahas (and the Ascendant) within 10&deg; of each other, worked out from
         actual longitude - not just a shared sign. Two bodies a couple of
@@ -3469,7 +3493,7 @@ PAGE_TEMPLATE = """
       <div class="houses-box"><div class="placeholder-small" data-i18n="conj_degree.none">No conjunctions within 10&deg; in this chart.</div></div>
       {% endif %}
 
-      <div class="section-title"><span data-i18n="section.conj_sign">Conjunctions &ndash; By Sign (Rashi)</span></div>
+      <div class="section-title"><span data-i18n="section.conj_sign">Conjunctions &ndash; By Sign (Rashi)</span><a class="gl-help" href="/glossary#serkkai" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
       <small class="hint" data-i18n="conj_sign.hint">
         The traditional whole-sign yuti: every pair of grahas (and the
         Ascendant) sharing a sign, however many degrees apart within it -
@@ -5039,6 +5063,14 @@ PORUTHAM_TEMPLATE = """
     content: ""; width: 4px; height: 16px; border-radius: 3px;
     background: var(--primary-grad); display: inline-block;
   }
+  .gl-help {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; flex-shrink: 0;
+    border-radius: 50%; border: 1px solid rgba(212,175,55,0.5);
+    font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0;
+    color: var(--gold); text-decoration: none; opacity: 0.75;
+  }
+  .gl-help:hover { opacity: 1; background: rgba(212,175,55,0.14); }
 
   .chart-facts { display: grid; gap: 12px; }
   @media (min-width: 720px) { .chart-facts { grid-template-columns: 1fr 1fr; } }
@@ -5093,6 +5125,7 @@ PORUTHAM_TEMPLATE = """
   </div>
   {{ theme_switch | safe }}
   {{ lang_switch | safe }}
+  <a class="back-btn" href="/glossary#porutham">&#128214; <span data-i18n="gl.open">Vocabulary</span></a>
   <a class="back-btn" href="/" data-i18n-attr="aria-label:porutham.back"
      aria-label="Back to chart">&#8592; <span data-i18n="porutham.back">Back to chart</span></a>
 </div>
@@ -5279,7 +5312,7 @@ PORUTHAM_TEMPLATE = """
   {% endif %}
 
   {% if chart_match %}
-    <div class="section-title"><span data-i18n="jathagam.section">{{ t('jathagam.section') }}</span></div>
+    <div class="section-title"><span data-i18n="jathagam.section">{{ t('jathagam.section') }}</span><a class="gl-help" href="/glossary#jathaga_porutham" target="_blank" rel="noopener" data-i18n-attr="title:gl.help;aria-label:gl.help" title="What does this mean?">?</a></div>
     <small class="hint" data-i18n="jathagam.intro">{{ t('jathagam.intro') }}</small>
 
     <div class="porutham-list">
@@ -6704,6 +6737,130 @@ def _janma_from_birth(form):
     )
     moon = subject.moon["abs_pos"] % 360.0
     return {"nakshatra": int(moon // NAKSHATRA_SPAN), "rasi": int(moon // 30.0)}
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary (glossary) page
+# ---------------------------------------------------------------------------
+# The reference lists are read off the same tables the charts use - the
+# nakshatra lords, the dasha years, RULERSHIP, i18n.TERMS - so a list on this
+# page can never disagree with a chart. Each cell is {en, ta} or a plain
+# string the page shows as it is.
+
+# How Tamil speakers name the grahas in English text; the app's own prose
+# uses these (Sevvai, Sukran...), so the list gives both.
+_GLOSSARY_GRAHA_ROMAN = {
+    "Sun": "Surya", "Moon": "Chandra", "Mars": "Sevvai", "Mercury": "Budhan",
+    "Jupiter": "Guru", "Venus": "Sukran", "Saturn": "Sani", "Rahu": "Rahu", "Ketu": "Ketu",
+}
+_GLOSSARY_RASI_ROMAN = [
+    "Mesham", "Rishabam", "Mithunam", "Kadagam", "Simmam", "Kanni",
+    "Thulam", "Viruchigam", "Dhanusu", "Makaram", "Kumbam", "Meenam",
+]
+_GLOSSARY_GRAHAS = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu"]
+_GLOSSARY_LISTS_CACHE = None
+
+
+def _glossary_lists():
+    global _GLOSSARY_LISTS_CACHE
+    if _GLOSSARY_LISTS_CACHE is not None:
+        return _GLOSSARY_LISTS_CACHE
+    T = i18n.TERMS
+
+    def term(kind, key):
+        return {"en": T[kind]["en"].get(key, key), "ta": T[kind]["ta"].get(key, key)}
+
+    def ui(key, **params):
+        return {"en": i18n.t(key, "en", **params), "ta": i18n.t(key, "ta", **params)}
+
+    def heading(en, ta):
+        return {"en": en, "ta": ta}
+
+    sign_key = [SIGN_NAME_MAP[a] for a in SIGN_ORDER]   # the app's own spellings
+    lists = {}
+
+    lists["list_grahas"] = {
+        "cols": [heading("Graha", "கிரகம்"), heading("Also called", "வேறு பெயர்"),
+                 heading("Dasha years", "தசை ஆண்டுகள்"), heading("Owns", "ஆட்சி ராசிகள்")],
+        "rows": [[term("planet", g), _GLOSSARY_GRAHA_ROMAN[g], str(DASHA_YEARS[g]),
+                  [term("sign", SIGN_NAME_MAP[a]) for a in RULERSHIP.get(g, [])] or "-"]
+                 for g in _GLOSSARY_GRAHAS],
+    }
+    elements = ["fire", "earth", "air", "water"]
+    modalities = ["movable", "fixed", "mutable"]
+    lists["list_rasis"] = {
+        "cols": [heading("Rasi", "ராசி"), heading("Tamil name", "தமிழ்ப் பெயர்"),
+                 heading("Lord", "அதிபதி"), heading("Element", "தத்துவம்"), heading("Nature", "தன்மை")],
+        "rows": [[term("sign", sign_key[i]), _GLOSSARY_RASI_ROMAN[i],
+                  term("planet", SIGN_LORD[a]), term("element", elements[i % 4]),
+                  term("modality", modalities[i % 3])]
+                 for i, a in enumerate(SIGN_ORDER)],
+    }
+    nak_rows = []
+    for i, name in enumerate(NAKSHATRA_NAMES):
+        start, end = i * NAKSHATRA_SPAN, (i + 1) * NAKSHATRA_SPAN
+        first, last = int(start // 30), int((end - 1e-9) // 30)
+        rasis = [term("sign", sign_key[first])]
+        if last != first:
+            rasis.append(term("sign", sign_key[last]))
+        nak_rows.append([str(i + 1), term("nakshatra", name), term("planet", NAKSHATRA_LORDS[i]), rasis])
+    lists["list_nakshatras"] = {
+        "cols": [heading("#", "#"), heading("Nakshatra", "நட்சத்திரம்"),
+                 heading("Lord", "அதிபதி"), heading("Rasi", "ராசி")],
+        "rows": nak_rows,
+    }
+    vara_lord = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]
+    lists["list_vara"] = {
+        "cols": [heading("Vara", "கிழமை"), heading("Lord", "அதிபதி")],
+        "rows": [[term("vara", v), term("planet", vara_lord[i])]
+                 for i, v in enumerate(T["vara"]["en"])],
+    }
+    tithis = list(T["tithi"]["en"])
+    lists["list_tithis"] = {
+        "cols": [heading("#", "#"), heading("Tithi", "திதி")],
+        "rows": [[str(i + 1) if i < 14 else "15", term("tithi", k)] for i, k in enumerate(tithis)],
+        "note": heading("1-14 come in both pakshas; the 15th is Pournami in the bright half and Amavasai in the dark.",
+                        "1-14 இரு பக்ஷங்களிலும் வரும்; 15-வது வளர்பிறையில் பௌர்ணமி, தேய்பிறையில் அமாவாசை."),
+    }
+    lists["list_yogas"] = {
+        "cols": [heading("#", "#"), heading("Yoga", "யோகம்")],
+        "rows": [[str(i + 1), term("yoga", k)] for i, k in enumerate(T["yoga"]["en"])],
+    }
+    lists["list_karanas"] = {
+        "cols": [heading("#", "#"), heading("Karana", "கரணம்")],
+        "rows": [[str(i + 1), term("karana", k)] for i, k in enumerate(T["karana"]["en"])],
+    }
+    lists["list_taras"] = {
+        "cols": [heading("Count", "எண்ணிக்கை"), heading("Tara", "தாரை"), heading("Verdict", "பலன்")],
+        "rows": [[f"{i + 1}, {i + 10}, {i + 19}", term("tara", k),
+                  heading("Avoid", "தவிர்க்கவும்") if k in ("Vipat", "Pratyak", "Naidhana")
+                  else heading("Mixed", "கலப்பு") if k == "Janma" else heading("Good", "நல்லது")]
+                 for i, k in enumerate(T["tara"]["en"])],
+    }
+    lists["list_vargas"] = {
+        "cols": [heading("D", "D"), heading("Varga", "வர்க்கம்"), heading("Read for", "எதற்காக")],
+        "rows": [["D%d" % d, ui("varga.name_%d" % d), ui("varga.about_%d" % d)] for d in vargas.VARGA_NUMBERS],
+    }
+    lists["list_months"] = {
+        "cols": [heading("Month", "மாதம்"), heading("Surya in", "சூரியன் நிற்கும் ராசி")],
+        "rows": [[term("tamil_month", m), term("sign", sign_key[i])]
+                 for i, m in enumerate(T["tamil_month"]["en"])],
+    }
+    for lid, en, ta in glossary.LISTS:
+        lists[lid]["title"] = heading(en, ta)
+    _GLOSSARY_LISTS_CACHE = [dict(lists[lid], id=lid) for lid, _, _ in glossary.LISTS]
+    return _GLOSSARY_LISTS_CACHE
+
+
+@app.route("/glossary")
+def glossary_page():
+    data = {
+        "categories": [{"id": c, "en": en, "ta": ta} for c, en, ta in glossary.CATEGORIES],
+        "entries": glossary.ENTRIES,
+        "where": {k: {"url": u, "label": lbl} for k, (u, lbl) in glossary.WHERE.items()},
+        "lists": _glossary_lists(),
+    }
+    return Response(GLOSSARY_HTML.replace("__GLOSSARY__", _json_for_script(data)), mimetype="text/html")
 
 
 @app.route("/muhurtham", methods=["GET", "POST"])

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+     The vocabulary page - every astrological word the app shows, in English
+     and Tamil, with what it means here.
+
+     The words are in glossary.py and the reference lists are built in
+     app.py (_glossary_lists) from the same tables the charts use; both
+     arrive as one JSON blob in #glData, whose placeholder the /glossary
+     route replaces - so never write that placeholder anywhere else in this
+     file, or the whole blob is pasted in twice. Nothing here knows any
+     astrology.
+
+     Navigation, three ways in:
+       - search (both scripts, plus the common spellings in each entry's
+         `alias`), and a chip per group;
+       - every card is an anchor - /glossary#lagna opens on that word, which
+         is what the results page's small "?" links use;
+       - "see also" links walk from word to word, and "in the app" links go
+         to where the word is used.
+
+     Its own file for the reason panchang.html is: Jinja never sees it.
+     Restart the server by hand after editing.
+     =========================================================================== -->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title data-i18n="gl.page_title">Vocabulary &ndash; astrology words in English and Tamil</title>
+<script>
+  (function () {
+    try {
+      var lang = window.localStorage.getItem("vedic-chart-lang");
+      if (lang === "en" || lang === "ta") {
+        document.documentElement.setAttribute("data-lang", lang);
+        document.documentElement.setAttribute("lang", lang);
+      }
+      var theme = window.localStorage.getItem("vedic-theme");
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      } else if (theme === "auto" && window.matchMedia
+                 && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (err) {}
+  })();
+</script>
+<script src="/i18n.js"></script>
+<meta name="description" content="Astrology words used in this app - graha, rasi, nakshatra, dasha, gochar, panchangam, porutham - explained in English and Tamil.">
+<meta name="theme-color" content="#0b0d17">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VedicChart">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&family=Noto+Sans+Tamil:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gl-bg: #0a0b16;
+    --gl-panel: rgba(255, 255, 255, 0.045);
+    --gl-panel-2: rgba(255, 255, 255, 0.08);
+    --gl-border: rgba(212, 175, 55, 0.22);
+    --gl-ink: #e4dac9;
+    --gl-dim: rgba(228, 218, 201, 0.62);
+    --gl-gold: #d4af37;
+    --gl-gold-soft: rgba(212, 175, 55, 0.1);
+    --gl-flash: rgba(212, 175, 55, 0.28);
+    --gl-mark: rgba(212, 175, 55, 0.32);
+    --gl-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  }
+  html[data-theme="light"] {
+    --gl-bg: #f4efe4;
+    --gl-panel: rgba(32, 26, 12, 0.045);
+    --gl-panel-2: rgba(32, 26, 12, 0.08);
+    --gl-border: rgba(140, 110, 30, 0.3);
+    --gl-ink: #2b2415;
+    --gl-dim: rgba(43, 36, 21, 0.66);
+    --gl-gold: #8a6b14;
+    --gl-gold-soft: rgba(160, 125, 25, 0.12);
+    --gl-flash: rgba(160, 125, 25, 0.26);
+    --gl-mark: rgba(160, 125, 25, 0.28);
+    --gl-shadow: 0 10px 28px rgba(80, 65, 30, 0.16);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-padding-top: 150px; }
+  body {
+    min-height: 100vh;
+    background: var(--gl-bg);
+    color: var(--gl-ink);
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 28px;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+  html[data-lang="ta"] body { font-family: 'Noto Sans Tamil', 'Lato', sans-serif; }
+  .ta-text { font-family: 'Noto Sans Tamil', 'Lato', sans-serif; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  .gl-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .gl-top h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.1rem, 3.8vw, 1.55rem);
+    letter-spacing: 0.12em;
+    color: var(--gl-gold);
+  }
+  html[data-lang="ta"] .gl-top h1 { font-family: 'Noto Sans Tamil', serif; letter-spacing: 0.02em; }
+  .gl-top .sub { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--gl-dim); line-height: 1.5; }
+  .gl-link {
+    font-size: 0.75rem; letter-spacing: 0.05em;
+    padding: 8px 16px; border-radius: 20px;
+    border: 1.5px solid var(--gl-border); background: var(--gl-gold-soft);
+    color: var(--gl-gold); text-decoration: none; white-space: nowrap;
+  }
+  .gl-link:hover { border-color: var(--gl-gold); }
+  .lang-switch {
+    flex-shrink: 0; display: inline-flex; gap: 2px; padding: 3px;
+    border: 1.5px solid var(--gl-border); border-radius: 999px; background: var(--gl-gold-soft);
+  }
+  .lang-switch button {
+    padding: 5px 11px; font-size: 11px; font-weight: 700;
+    color: var(--gl-dim); background: transparent; border: none; border-radius: 999px; cursor: pointer;
+  }
+  .lang-switch button.active { background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%); color: #1c1710; }
+
+  /* ── dock: search, groups, both-languages ───────────────────────────── */
+  .gl-dock {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 10px 12px; margin: 0 -4px 16px;
+    border: 1px solid var(--gl-border); border-radius: 14px;
+    background: var(--gl-bg);
+    box-shadow: var(--gl-shadow);
+  }
+  .gl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+  .gl-search {
+    position: relative; flex: 1 1 240px; min-width: 0;
+  }
+  .gl-search input {
+    width: 100%; font: inherit; font-size: 15px;
+    padding: 9px 36px 9px 12px; border-radius: 10px;
+    border: 1px solid var(--gl-border); background: var(--gl-panel); color: var(--gl-ink);
+  }
+  .gl-search input:focus { outline: none; border-color: var(--gl-gold); }
+  .gl-search button {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 28px; height: 28px; border: none; border-radius: 50%;
+    background: transparent; color: var(--gl-dim); font-size: 16px; cursor: pointer;
+  }
+  .gl-search button[hidden] { display: none; }
+  .gl-toggle {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 12px; color: var(--gl-dim); white-space: nowrap;
+  }
+  .gl-toggle input { accent-color: var(--gl-gold); }
+  .gl-count { font-size: 12px; color: var(--gl-dim); white-space: nowrap; }
+
+  /* Chips scroll sideways inside themselves, never the page. */
+  .gl-chips {
+    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; padding-bottom: 2px; min-width: 0;
+  }
+  .gl-chips::-webkit-scrollbar { display: none; }
+  .gl-chip {
+    flex-shrink: 0; font: inherit; font-size: 12px; cursor: pointer;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--gl-border); background: var(--gl-panel); color: var(--gl-ink);
+    white-space: nowrap;
+  }
+  .gl-chip .n { color: var(--gl-dim); margin-left: 4px; font-size: 11px; }
+  .gl-chip.active { background: linear-gradient(135deg, #d4af37 0%, #f0d878 100%); color: #1c1710; border-color: transparent; }
+  .gl-chip.active .n { color: rgba(28, 23, 16, 0.7); }
+
+  /* ── sections and cards ──────────────────────────────────────────────── */
+  .gl-section { margin-bottom: 26px; }
+  .gl-section[hidden] { display: none; }
+  .gl-section h2 {
+    font-family: 'Cinzel', serif; font-size: 14px; letter-spacing: 0.08em;
+    color: var(--gl-gold); margin: 0 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  html[data-lang="ta"] .gl-section h2 { font-family: 'Noto Sans Tamil', serif; letter-spacing: 0.02em; }
+  .gl-section h2::before {
+    content: ""; width: 4px; height: 16px; border-radius: 3px;
+    background: linear-gradient(180deg, #d4af37, #f0d878);
+  }
+  .gl-section h2 .alt { font-family: 'Lato', sans-serif; font-size: 12px; letter-spacing: 0; color: var(--gl-dim); font-weight: 400; }
+  .gl-grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  }
+  .gl-card {
+    position: relative; min-width: 0;
+    padding: 14px 14px 12px;
+    border: 1px solid var(--gl-border); border-radius: 12px;
+    background: var(--gl-panel);
+    transition: background 0.6s ease, border-color 0.6s ease;
+  }
+  .gl-card[hidden] { display: none; }
+  .gl-card.flash { background: var(--gl-flash); border-color: var(--gl-gold); }
+  .gl-name { font-size: 17px; font-weight: 700; color: var(--gl-ink); line-height: 1.3; padding-right: 30px; overflow-wrap: anywhere; }
+  .gl-alt { font-size: 14px; color: var(--gl-gold); margin-top: 2px; overflow-wrap: anywhere; }
+  .gl-aka { font-size: 12px; color: var(--gl-dim); margin-top: 3px; font-style: italic; }
+  .gl-def { font-size: 14px; line-height: 1.6; margin-top: 9px; }
+  .gl-def.other { color: var(--gl-dim); font-size: 13px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--gl-border); }
+  .gl-def.other[hidden] { display: none; }
+  .gl-anchor {
+    position: absolute; top: 10px; right: 10px;
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 1px solid transparent; background: transparent;
+    color: var(--gl-dim); font-size: 15px; cursor: pointer; line-height: 1;
+  }
+  .gl-anchor:hover { border-color: var(--gl-border); color: var(--gl-gold); }
+  .gl-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-top: 10px; font-size: 12px; }
+  .gl-links .lbl { color: var(--gl-dim); margin-right: 2px; }
+  .gl-links a {
+    color: var(--gl-gold); text-decoration: none;
+    padding: 2px 9px; border-radius: 999px; border: 1px solid var(--gl-border);
+    background: var(--gl-gold-soft);
+  }
+  .gl-links a:hover { border-color: var(--gl-gold); }
+  .gl-links a.place { background: transparent; }
+  .gl-links a.place::after { content: " \2197"; font-size: 10px; }
+  mark { background: var(--gl-mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+  /* ── reference lists ─────────────────────────────────────────────────── */
+  .gl-lists { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+  .gl-table {
+    min-width: 0; border: 1px solid var(--gl-border); border-radius: 12px;
+    background: var(--gl-panel); padding: 12px;
+    transition: background 0.6s ease, border-color 0.6s ease;
+  }
+  .gl-table.flash { background: var(--gl-flash); border-color: var(--gl-gold); }
+  .gl-table[hidden] { display: none; }
+  .gl-table h3 { font-size: 14px; color: var(--gl-gold); margin-bottom: 8px; }
+  .gl-table .scroll { overflow-x: auto; }
+  .gl-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .gl-table th {
+    text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--gl-dim); padding: 4px 8px 6px; border-bottom: 1px solid var(--gl-border);
+  }
+  .gl-table td { padding: 6px 8px; border-bottom: 1px solid var(--gl-panel-2); vertical-align: top; }
+  .gl-table tr:last-child td { border-bottom: none; }
+  .gl-table td .two { display: block; font-size: 11.5px; color: var(--gl-dim); }
+  .gl-table .note { font-size: 12px; color: var(--gl-dim); margin-top: 8px; line-height: 1.5; }
+
+  .gl-empty { text-align: center; padding: 40px 16px; color: var(--gl-dim); font-size: 14px; }
+  .gl-empty[hidden] { display: none; }
+
+  .gl-totop {
+    position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 1.5px solid var(--gl-border); background: var(--gl-bg); color: var(--gl-gold);
+    font-size: 18px; cursor: pointer; box-shadow: var(--gl-shadow);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .gl-totop.show { opacity: 1; pointer-events: auto; }
+
+  .gl-toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: 7;
+    transform: translateX(-50%);
+    padding: 8px 16px; border-radius: 999px; font-size: 13px;
+    background: var(--gl-gold); color: #1c1710;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .gl-toast.show { opacity: 1; }
+
+  @media (max-width: 560px) {
+    html { scroll-padding-top: 170px; }
+    .gl-name { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="glTop">
+
+<header class="gl-top">
+  <h1 data-i18n="gl.title">Vocabulary</h1>
+  <p class="sub" data-i18n="gl.subtitle">Every word this app uses, in English and Tamil, with what it means here.</p>
+  <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.label" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="ta">&#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  </div>
+  <a class="gl-link" href="/" data-i18n="pg.back">Back to Generator</a>
+</header>
+
+<div class="gl-dock">
+  <div class="gl-row">
+    <label class="gl-search">
+      <input type="search" id="glQ" autocomplete="off" spellcheck="false"
+             data-i18n-attr="placeholder:gl.search;aria-label:gl.search" placeholder="Search a word">
+      <button type="button" id="glClear" hidden data-i18n-attr="aria-label:gl.clear;title:gl.clear">&times;</button>
+    </label>
+    <label class="gl-toggle"><input type="checkbox" id="glBoth"> <span data-i18n="gl.both">Both languages</span></label>
+    <span class="gl-count" id="glCount"></span>
+  </div>
+  <div class="gl-chips" id="glChips" role="tablist"></div>
+</div>
+
+<main id="glMain"></main>
+<p class="gl-empty" id="glEmpty" hidden></p>
+
+</div>
+
+<button type="button" class="gl-totop" id="glToTop" data-i18n-attr="aria-label:gl.top;title:gl.top">&#8593;</button>
+<div class="gl-toast" id="glToast" role="status" aria-live="polite"></div>
+
+<script id="glData" type="application/json">__GLOSSARY__</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("glData").textContent);
+  var BOTH_KEY = "vedic-glossary-both";
+  var $ = function (id) { return document.getElementById(id); };
+  var qEl = $("glQ"), bothEl = $("glBoth"), mainEl = $("glMain");
+
+  var entryById = {};
+  DATA.entries.forEach(function (e) { entryById[e.id] = e; });
+  var listById = {};
+  DATA.lists.forEach(function (l) { listById[l.id] = l; });
+
+  var state = { cat: "all", q: "" };
+  try { bothEl.checked = localStorage.getItem(BOTH_KEY) === "1"; } catch (err) {}
+
+  function t(k, p) { return I18N.t(k, p); }
+  function lang() { return I18N.lang === "ta" ? "ta" : "en"; }
+  function other() { return lang() === "ta" ? "en" : "ta"; }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // Search folds case and Latin diacritics, and drops spaces and hyphens,
+  // so "rahu kalam", "Rahukalam" and "rāhu-kālam" all meet. Tamil is
+  // compared as typed.
+  function fold(s) {
+    return String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s\-'’.]+/g, "");
+  }
+  function highlight(text, q) {
+    if (!q) return esc(text);
+    var folded = "", map = [];
+    for (var i = 0; i < text.length; i++) {
+      var f = fold(text[i]);
+      for (var j = 0; j < f.length; j++) { folded += f[j]; map.push(i); }
+    }
+    var at = folded.indexOf(q);
+    if (at < 0) return esc(text);
+    var s = map[at], e = map[at + q.length - 1] + 1;
+    return esc(text.slice(0, s)) + "<mark>" + esc(text.slice(s, e)) + "</mark>" + esc(text.slice(e));
+  }
+
+  // A name hit outranks a definition hit; both count as a match.
+  function haystack(e) {
+    if (!e._hay) {
+      e._names = fold([e.id, e.en.name, e.en.aka, e.ta.name].concat(e.alias).join("|"));
+      e._defs = fold(e.en.def + "|" + e.ta.def);
+      e._hay = true;
+    }
+  }
+  function matches(e, q) {
+    if (!q) return true;
+    haystack(e);
+    return e._names.indexOf(q) >= 0 || e._defs.indexOf(q) >= 0;
+  }
+  function cellText(c) {
+    if (Array.isArray(c)) return c.map(cellText).join(" ");
+    return typeof c === "string" ? c : c.en + " " + c.ta;
+  }
+  function rowMatches(row, q) { return !q || fold(row.map(cellText).join("|")).indexOf(q) >= 0; }
+
+  function nameOf(id) {
+    var e = entryById[id];
+    if (e) return e[lang()].name;
+    var l = listById[id];
+    return l ? l.title[lang()] : id;
+  }
+
+  // ── rendering ──────────────────────────────────────────────────────────
+  function cardHTML(e, q) {
+    var L = lang(), O = other();
+    var primary = e[L].name, secondary = e[O].name;
+    var html = '<article class="gl-card" id="' + esc(e.id) + '" data-id="' + esc(e.id) + '">';
+    html += '<button type="button" class="gl-anchor" data-copy="' + esc(e.id) + '" title="' + esc(t("gl.copy")) +
+            '" aria-label="' + esc(t("gl.copy")) + '">#</button>';
+    html += '<div class="gl-name' + (L === "ta" ? " ta-text" : "") + '">' + highlight(primary, q) + '</div>';
+    if (secondary !== primary)
+      html += '<div class="gl-alt' + (O === "ta" ? " ta-text" : "") + '">' + highlight(secondary, q) + '</div>';
+    if (e.en.aka) html += '<div class="gl-aka">' + highlight(e.en.aka, q) + '</div>';
+    html += '<p class="gl-def' + (L === "ta" ? " ta-text" : "") + '">' + esc(e[L].def) + '</p>';
+    html += '<p class="gl-def other' + (O === "ta" ? " ta-text" : "") + '"' + (bothEl.checked ? "" : " hidden") + '>' +
+            esc(e[O].def) + '</p>';
+    if (e.see.length) {
+      html += '<div class="gl-links"><span class="lbl">' + esc(t("gl.see")) + ':</span>';
+      e.see.forEach(function (id) { html += '<a href="#' + esc(id) + '">' + esc(nameOf(id)) + '</a>'; });
+      html += '</div>';
+    }
+    if (e.where.length) {
+      html += '<div class="gl-links"><span class="lbl">' + esc(t("gl.where")) + ':</span>';
+      e.where.forEach(function (w) {
+        var p = DATA.where[w];
+        if (p) html += '<a class="place" href="' + esc(p.url) + '">' + esc(t(p.label)) + '</a>';
+      });
+      html += '</div>';
+    }
+    return html + '</article>';
+  }
+
+  // A term cell shows the current language, with the other one under it -
+  // the lists are where someone looks up "what is Viruchigam in English".
+  function cellHTML(c) {
+    if (Array.isArray(c)) return c.map(cellHTML).join(typeof c[0] === "string" ? ", " : "");
+    if (typeof c === "string") return esc(c);
+    var L = lang(), O = other();
+    var html = '<span' + (L === "ta" ? ' class="ta-text"' : "") + '>' + esc(c[L]) + '</span>';
+    if (c[O] !== c[L]) html += '<span class="two' + (O === "ta" ? " ta-text" : "") + '">' + esc(c[O]) + '</span>';
+    return '<div>' + html + '</div>';
+  }
+  function tableHTML(l, q) {
+    var L = lang();
+    var rows = l.rows.filter(function (r) { return rowMatches(r, q); });
+    var titleHit = q && fold(l.title.en + "|" + l.title.ta).indexOf(q) >= 0;
+    if (titleHit) rows = l.rows;
+    var html = '<section class="gl-table" id="' + esc(l.id) + '"' + (rows.length ? "" : " hidden") + '>';
+    html += '<h3>' + esc(l.title[L]) + '</h3><div class="scroll"><table><thead><tr>';
+    l.cols.forEach(function (c) { html += '<th>' + esc(c[L]) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr>' + r.map(function (c) { return '<td>' + cellHTML(c) + '</td>'; }).join("") + '</tr>';
+    });
+    html += '</tbody></table></div>';
+    if (l.note) html += '<p class="note">' + esc(l.note[L]) + '</p>';
+    return { html: html + '</section>', shown: rows.length };
+  }
+
+  function renderChips(counts) {
+    var L = lang();
+    var chips = [{ id: "all", label: t("gl.all"), n: counts.all }];
+    DATA.categories.forEach(function (c) { chips.push({ id: c.id, label: c[L], n: counts[c.id] || 0 }); });
+    chips.push({ id: "lists", label: t("gl.lists"), n: counts.lists });
+    $("glChips").innerHTML = chips.map(function (c) {
+      return '<button type="button" class="gl-chip' + (state.cat === c.id ? " active" : "") + '" role="tab" aria-selected="' +
+             (state.cat === c.id) + '" data-cat="' + c.id + '">' + esc(c.label) + '<span class="n">' + c.n + '</span></button>';
+    }).join("");
+  }
+
+  function render() {
+    var q = fold(state.q), L = lang(), O = other();
+    var counts = { all: 0, lists: 0 };
+    var html = "";
+    DATA.categories.forEach(function (c) {
+      var hits = DATA.entries.filter(function (e) { return e.cat === c.id && matches(e, q); });
+      // Words whose name matches come before words that only mention it.
+      if (q) hits.sort(function (a, b) {
+        return (b._names.indexOf(q) >= 0) - (a._names.indexOf(q) >= 0);
+      });
+      counts[c.id] = hits.length;
+      counts.all += hits.length;
+      if (!hits.length || (state.cat !== "all" && state.cat !== c.id)) return;
+      html += '<section class="gl-section" data-cat="' + c.id + '"><h2>' + esc(c[L]) +
+              ' <span class="alt' + (O === "ta" ? " ta-text" : "") + '">' + esc(c[O]) + '</span></h2><div class="gl-grid">';
+      hits.forEach(function (e) { html += cardHTML(e, q); });
+      html += '</div></section>';
+    });
+    var listsHTML = "", listsShown = 0;
+    DATA.lists.forEach(function (l) {
+      var r = tableHTML(l, q);
+      if (r.shown) listsShown++;
+      listsHTML += r.html;
+    });
+    counts.lists = listsShown;
+    if (listsShown && (state.cat === "all" || state.cat === "lists")) {
+      html += '<section class="gl-section" data-cat="lists"><h2>' + esc(t("gl.lists")) + '</h2><div class="gl-lists">' +
+              listsHTML + '</div></section>';
+    }
+    mainEl.innerHTML = html;
+    renderChips(counts);
+    var shownWords = state.cat === "all" ? counts.all : state.cat === "lists" ? 0 : counts[state.cat];
+    $("glCount").textContent = t("gl.count", { n: shownWords });
+    var empty = !html;
+    $("glEmpty").hidden = !empty;
+    if (empty) $("glEmpty").textContent = t("gl.none", { q: state.q });
+    $("glClear").hidden = !state.q;
+  }
+
+  // ── going to one word ──────────────────────────────────────────────────
+  // A hash names an entry or a list. If a search or a group is hiding it,
+  // both are cleared first - the reader asked for that word.
+  function goTo(id, smooth) {
+    if (!entryById[id] && !listById[id]) return false;
+    var el = document.getElementById(id);
+    if (!el || el.hidden || el.closest("[hidden]")) {
+      state.q = ""; qEl.value = ""; state.cat = "all";
+      render();
+      el = document.getElementById(id);
+    }
+    if (!el) return false;
+    el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    el.classList.add("flash");
+    setTimeout(function () { el.classList.remove("flash"); }, 1600);
+    return true;
+  }
+  function fromHash(smooth) {
+    var id = decodeURIComponent(location.hash.replace(/^#/, ""));
+    if (id) goTo(id, smooth);
+  }
+
+  // ── events ─────────────────────────────────────────────────────────────
+  var typing = null;
+  qEl.addEventListener("input", function () {
+    clearTimeout(typing);
+    typing = setTimeout(function () { state.q = qEl.value.trim(); render(); window.scrollTo(0, 0); }, 120);
+  });
+  qEl.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { qEl.value = ""; state.q = ""; render(); }
+    // Enter jumps to the first word found, which is what a lookup wants.
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      clearTimeout(typing); state.q = qEl.value.trim(); render();
+      var first = mainEl.querySelector(".gl-card, .gl-table:not([hidden])");
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
+      qEl.blur();
+    }
+  });
+  $("glClear").addEventListener("click", function () { qEl.value = ""; state.q = ""; render(); qEl.focus(); });
+  bothEl.addEventListener("change", function () {
+    try { localStorage.setItem(BOTH_KEY, bothEl.checked ? "1" : "0"); } catch (err) {}
+    mainEl.querySelectorAll(".gl-def.other").forEach(function (p) { p.hidden = !bothEl.checked; });
+  });
+  $("glChips").addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-cat]");
+    if (!chip) return;
+    state.cat = chip.getAttribute("data-cat");
+    render();
+    chip = $("glChips").querySelector('[data-cat="' + state.cat + '"]');
+    if (chip) chip.scrollIntoView({ block: "nearest", inline: "center" });
+    window.scrollTo(0, 0);
+  });
+
+  var toastTimer = null;
+  function toast(msg) {
+    var el = $("glToast");
+    el.textContent = msg; el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 1600);
+  }
+  mainEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-copy]");
+    if (!btn) return;
+    var id = btn.getAttribute("data-copy");
+    var url = location.origin + location.pathname + "#" + id;
+    history.replaceState(null, "", "#" + id);
+    try { navigator.clipboard.writeText(url).then(function () { toast(t("gl.copied")); }, function () {}); } catch (err) {}
+  });
+  // See-also links are plain #anchors; this makes them land even when a
+  // search has hidden the card they point to.
+  mainEl.addEventListener("click", function (ev) {
+    var a = ev.target.closest('a[href^="#"]');
+    if (!a) return;
+    ev.preventDefault();
+    var id = a.getAttribute("href").slice(1);
+    history.pushState(null, "", "#" + id);
+    goTo(id, true);
+  });
+  window.addEventListener("hashchange", function () { fromHash(true); });
+  window.addEventListener("popstate", function () { fromHash(true); });
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && document.activeElement !== qEl && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+      ev.preventDefault(); qEl.focus();
+    }
+  });
+
+  var topBtn = $("glToTop");
+  window.addEventListener("scroll", function () { topBtn.classList.toggle("show", window.scrollY > 600); }, { passive: true });
+  topBtn.addEventListener("click", function () { window.scrollTo({ top: 0, behavior: "smooth" }); });
+
+  I18N.onChange(function () { render(); });
+
+  // ?q= opens on a search, so a link can say "look this up".
+  var q0 = new URLSearchParams(location.search).get("q");
+  if (q0) { qEl.value = q0; state.q = q0.trim(); }
+  render();
+  fromHash(false);
+})();
+</script>
+</body>
+</html>

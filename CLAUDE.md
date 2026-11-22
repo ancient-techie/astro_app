@@ -56,6 +56,8 @@ insecure default plus a startup warning (harmless in dev). `DATABASE_URL`
 | `db.py` | ~137 | SQLAlchemy storage for saved birth details |
 | `muhurtham.py` | ~310 | Muhurtham rules (vivaham / griha pravesham / vahana): tables + window judging; pure, no ephemeris |
 | `muhurtham.html` | ~650 | The Muhurtham finder page (`/muhurtham`): best three dates + a calendar of reasons |
+| `glossary.py` | ~620 | The vocabulary page's words: ~100 terms, each English + Tamil name and definition, see-also and where-in-the-app links; `check()` must return `[]` |
+| `glossary.html` | ~520 | The Vocabulary page (`/glossary`): search in both scripts, a chip per group, reference lists |
 
 `app.py` reads these HTML files at **import time**: `chart_playground.html`
 (`PLAYGROUND_HTML`), `strength_panel.html` (`STRENGTH_PANEL_HTML`),
@@ -204,6 +206,21 @@ joined, under 48 minutes dropped. Reasons are `{key, tone, terms, params}` -
 `terms` are `[kind, key]` pairs the page passes through `I18N.term` before
 `I18N.t(key)`, so every reason needs an `mu.r.*` string in both languages.
 Not yet checked: lagna shuddhi, Guru/Shukra moudyam, both partners' stars.
+
+## Vocabulary page
+
+`/glossary` explains every word the app uses, in English and Tamil. The prose
+is in `glossary.py` (`ENTRIES`, grouped by `CATEGORIES`); the reference lists
+(grahas, rasis, 27 nakshatras, tithis, yogas, karanas, taras, vargas, Tamil
+months) are built by `_glossary_lists()` in `app.py` from the chart's own
+tables and `i18n.TERMS`, so they cannot drift. Both arrive in one placeholder,
+`__GLOSSARY__` - write it nowhere else in `glossary.html`, or the blob is
+injected twice.
+
+An entry's `id` is its anchor: the results page's section titles and the
+porutham page carry small `?` links (`.gl-help`) to `/glossary#<id>`, and
+`?q=` opens on a search. Renaming an id means grepping `app.py` for it. A new
+word the app starts using belongs here too, with both languages.
 
 ## Navigating `strength_panel.html`
 
