@@ -48,7 +48,7 @@ insecure default plus a startup warning (harmless in dev). `DATABASE_URL`
 | `ui_shell.html` | ~460 | The shell's chrome and behaviour: menu, bottom tabs, saved charts, city type-ahead, theme switch; injected at the end of every `<body>` |
 | `ui_icons.html` | ~90 | The stroked icon sprite, injected at the top of every `<body>` |
 | `i18n.py` | ~1.8k | `TERMS` (vocabulary inside data) + `UI` (fixed labels), en/ta |
-| `chart_pdf.py` | ~750 | ReportLab A4 export of the results page |
+| `chart_pdf.py` | ~850 | ReportLab A4 export of the results page, in two kinds: `instant` (one page - details, one style's D1+D9, the running dasa-bhukti) and `detailed` (adds the full Mahadasha table, antaram, nakshatras, conjunctions by sign, Sade Sati). `/download-pdf` reads `report=instant\|detailed` from whichever of the two submit buttons was pressed; missing means detailed |
 | `porutham.py` | ~620 | The ten Tamil marriage-compatibility checks (pure lookups, no ephemeris) |
 | `jathagam.py` | ~344 | Chart-level marriage checks that need a full horoscope |
 | `vargas.py` | ~180 | The sixteen divisional charts' rules (D1–D60), Parashara; pure, no ephemeris |

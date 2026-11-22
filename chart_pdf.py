@@ -663,11 +663,91 @@ def _page_furniture(canvas, doc, name, lang, font):
     canvas.restoreState()
 
 
-def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
+def _dasha_block(styles, dasha_table, lang):
+    """All nine Mahadashas, birth to the end of the cycle, the running one
+    highlighted the way the web table marks it."""
+    header = [i18n.t(k, lang) for k in ("th.lord", "th.start", "th.end", "th.years")]
+    rows = [[_para(styles, h, "cell_head") for h in header]]
+    current = None
+    for i, row in enumerate(dasha_table, start=1):
+        if row.get("is_current"):
+            current = i
+        rows.append([
+            _para(styles, i18n.term("planet", row["lord"], lang), bold=bool(row.get("is_current"))),
+            _para(styles, row["start"]),
+            _para(styles, row["end"]),
+            _para(styles, row["years"]),
+        ])
+    widths = [w * CONTENT_WIDTH for w in (0.34, 0.24, 0.24, 0.18)]
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    style = _table_style()
+    if current:
+        style.add("BACKGROUND", (0, current), (-1, current), GOLD_SOFT)
+        style.add("LINEBEFORE", (0, current), (0, current), 2.2, GOLD)
+    table.setStyle(style)
+    return table
+
+
+def _conj_sign_block(styles, sign_conjunctions, lang):
+    """Whole-sign yuti: one row a sign, its members and the gap of each pair."""
+    header = [i18n.t("th.sign", lang), i18n.t("th.planet", lang), i18n.t("pdf.conj_gap", lang)]
+    rows = [[_para(styles, h, "cell_head") for h in header]]
+    planet = lambda name: i18n.term("planet", name, lang)
+    for group in sign_conjunctions:
+        members = ", ".join(f"{planet(m['planet'])} {m['degree']}" for m in group["members"])
+        pairs = "; ".join(f"{planet(p['a'])} - {planet(p['b'])}: {p['diff']}" for p in group["pairs"])
+        rows.append([
+            _para(styles, i18n.term("sign", group["sign"], lang)),
+            _para(styles, members),
+            _para(styles, pairs),
+        ])
+    widths = [w * CONTENT_WIDTH for w in (0.18, 0.42, 0.40)]
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    table.setStyle(_table_style())
+    return table
+
+
+def _sade_sati_block(styles, sade_sati, lang):
+    """Every Sade Sati and Small Panoti crossing in the first hundred years,
+    one row a phase, the one running today highlighted."""
+    header = [i18n.t(k, lang) for k in ("pdf.ss_kind", "pdf.ss_phase", "ss.th_dates", "pdf.ss_age")]
+    rows = [[_para(styles, h, "cell_head") for h in header]]
+    current_rows = []
+    for cycle in sade_sati.get("cycles") or []:
+        for seg in cycle.get("segments") or []:
+            if seg.get("is_current"):
+                current_rows.append(len(rows))
+            rows.append([
+                _para(styles, i18n.t("ss.grp_" + cycle["group"], lang), bold=bool(seg.get("is_current"))),
+                _para(styles, i18n.t("ss.short_" + seg["key"], lang)),
+                _para(styles, f"{seg['start']} - {seg['end']}"),
+                _para(styles, f"{cycle.get('start_age', '')} - {cycle.get('end_age', '')}"),
+            ])
+    if len(rows) == 1:
+        return None
+    widths = [w * CONTENT_WIDTH for w in (0.32, 0.22, 0.32, 0.14)]
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    style = _table_style()
+    for r in current_rows:
+        style.add("BACKGROUND", (0, r), (-1, r), GOLD_SOFT)
+        style.add("LINEBEFORE", (0, r), (0, r), 2.2, GOLD)
+    table.setStyle(style)
+    return table
+
+
+REPORT_KINDS = ("instant", "detailed")
+
+
+def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE, kind="detailed"):
     """Render the chart context to PDF bytes.
 
     `form` is the submitted birth-details dict; `ctx` is what
     app.build_chart_context() returns; `lang` follows the page's toggle.
+
+    `kind` is "instant" - one page: details, the Rasi and Navamsa in one
+    style, and the period running today - or "detailed", which adds the
+    whole dasha sequence, the next level down, the nakshatra table,
+    conjunctions by sign and Sade Sati.
 
     Tamil falls back to English when _tamil_font() can't supply a face that
     is both embeddable and shapable - see the note above it.
@@ -676,6 +756,9 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
     if lang == "ta" and font is None:
         lang = i18n.DEFAULT_LANGUAGE
 
+    if kind not in REPORT_KINDS:
+        kind = "detailed"
+    instant = kind == "instant"
     name = form.get("name") or "Chart"
     styles = _styles(font)
     buffer = io.BytesIO()
@@ -692,7 +775,8 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
 
     story = [
         _para(styles, name, "title"),
-        _para(styles, i18n.t("pdf.subtitle", lang), "subtitle"),
+        _para(styles, i18n.t("pdf.subtitle", lang) + " \u00b7 " +
+              i18n.t("pdf.kind_" + kind, lang), "subtitle"),
         Spacer(1, 12),
     ]
 
@@ -701,7 +785,12 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
         styles, form, ctx.get("ascendant"), ctx.get("navamsa_ascendant"), lang,
     ))
 
-    chart_flowables = _charts_block(styles, ctx.get("charts") or [], lang, font)
+    charts = ctx.get("charts") or []
+    if instant and len(charts) > 2:
+        # "Both" styles is four charts - two pages. The summary keeps the
+        # first style's D1 and D9, which is the pair the page shows first.
+        charts = [charts[0], charts[len(charts) // 2]]
+    chart_flowables = _charts_block(styles, charts, lang, font)
     if chart_flowables:
         story += _section(styles, i18n.t("pdf.charts_heading", lang))
         story += chart_flowables
@@ -712,6 +801,15 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
     # is short enough to follow them on the same page.
     bhukti_window = ctx.get("bhukti_window") or []
     house_map = ctx.get("dasha_house_map") or {}
+    if instant:
+        running = [p for p in bhukti_window if p.get("role") == "Current"]
+        if running:
+            block = _section(styles, i18n.t("pdf.running_heading", lang))
+            block += _bhukti_lines(styles, running, lang, house_map)
+            story.append(KeepTogether(block))
+        story.append(Spacer(1, 8))
+        story.append(_para(styles, i18n.t("pdf.instant_note", lang), "note"))
+        bhukti_window = []
     if bhukti_window:
         block = _section(styles, i18n.t("pdf.bhukti_heading", lang))
         block += _bhukti_lines(styles, bhukti_window, lang, house_map)
@@ -732,11 +830,32 @@ def build_chart_pdf(form, ctx, lang=i18n.DEFAULT_LANGUAGE):
         if current:
             story.append(KeepTogether(_antaram_block(styles, current, lang, house_map)))
 
-    star_table = ctx.get("star_table") or []
+    dasha_table = ctx.get("dasha_table") or []
+    if not instant and dasha_table:
+        block = _section(styles, i18n.t("section.dasha", lang))
+        block.append(_dasha_block(styles, dasha_table, lang))
+        story.append(KeepTogether(block))
+
+    star_table = [] if instant else (ctx.get("star_table") or [])
     if star_table:
         block = _section(styles, i18n.t("section.star", lang))
         block.append(_star_block(styles, star_table, lang))
         story.append(KeepTogether(block))
+
+    sign_conj = [] if instant else (ctx.get("sign_conjunctions") or [])
+    if sign_conj:
+        block = _section(styles, i18n.t("section.conj_sign", lang))
+        block.append(_conj_sign_block(styles, sign_conj, lang))
+        story.append(KeepTogether(block))
+
+    sade_sati = None if instant else ctx.get("sade_sati")
+    ss_table = _sade_sati_block(styles, sade_sati, lang) if sade_sati else None
+    if ss_table is not None:
+        story += _section(styles, i18n.t("section.sade_sati", lang))
+        story.append(_para(styles, i18n.t("ss.moon_label", lang) + ": " +
+                           i18n.term("sign", sade_sati.get("moon_sign"), lang), "note"))
+        story.append(Spacer(1, 4))
+        story.append(ss_table)
 
     story.append(Spacer(1, 14))
     story.append(_para(

@@ -3361,7 +3361,12 @@ PAGE_TEMPLATE = """
             <input type="hidden" name="{{ field }}" value="{{ form[field] }}">
           {% endfor %}
           <input type="hidden" name="lang" value="en" data-lang-field>
-          <button type="submit" class="meta-pill pdf-btn">&#11015; <span data-i18n="meta.download_pdf">Download PDF</span></button>
+          <!-- Two submit buttons on one form: the one pressed sends its own
+               report=instant|detailed, so neither needs any JS. -->
+          <button type="submit" name="report" value="instant" class="meta-pill pdf-btn"
+                  data-i18n-attr="title:meta.pdf_instant_title" title="One page: details, charts and the period running now">&#9889; <span data-i18n="meta.pdf_instant">Instant report</span></button>
+          <button type="submit" name="report" value="detailed" class="meta-pill pdf-btn"
+                  data-i18n-attr="title:meta.pdf_detailed_title" title="Everything: dashas, nakshatras, conjunctions and Sade Sati">&#11015; <span data-i18n="meta.pdf_detailed">Detailed report</span></button>
         </form>
         <!-- The sixteen divisional charts, on their own page - re-posted the
              same way as the PDF, so that page needs no session either. -->
@@ -7186,7 +7191,7 @@ def muhurtham_data():
     return jsonify(result)
 
 
-def _pdf_content_disposition(name):
+def _pdf_content_disposition(name, kind="detailed"):
     """Build the download header for a person's chart PDF.
 
     WSGI headers have to be latin-1 safe, so a name in Tamil, Devanagari, etc.
@@ -7194,12 +7199,13 @@ def _pdf_content_disposition(name):
     and the real name in the RFC 5987 filename*= form, which every current
     browser prefers when both are present.
     """
-    full = f"{name}_vedic_chart.pdf".replace(" ", "_")
+    suffix = "summary" if kind == "instant" else "vedic_chart"
+    full = f"{name}_{suffix}.pdf".replace(" ", "_")
 
     ascii_slug = "".join(
         c for c in name if (c.isascii() and c.isalnum()) or c in " -_"
     ).strip().replace(" ", "_") or "chart"
-    fallback = f"{ascii_slug}_vedic_chart.pdf"
+    fallback = f"{ascii_slug}_{suffix}.pdf"
 
     encoded = urllib.parse.quote(full, safe="")
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
@@ -7221,6 +7227,11 @@ def download_pdf():
     lang = request.form.get("lang", i18n.DEFAULT_LANGUAGE)
     if lang not in i18n.LANGUAGES:
         lang = i18n.DEFAULT_LANGUAGE
+    # Which of the results page's two buttons was pressed. Anything else -
+    # an old bookmark, a saved form - gets the full report, as before.
+    kind = request.form.get("report", "detailed")
+    if kind not in ("instant", "detailed"):
+        kind = "detailed"
 
     if chart_pdf is None:
         return (
@@ -7230,14 +7241,14 @@ def download_pdf():
 
     try:
         ctx = build_chart_context(form)
-        pdf_bytes = chart_pdf.build_chart_pdf(form, ctx, lang)
+        pdf_bytes = chart_pdf.build_chart_pdf(form, ctx, lang, kind)
     except Exception as e:
         return f"Could not build the PDF: {e}", 400
 
     return Response(
         pdf_bytes,
         mimetype="application/pdf",
-        headers={"Content-Disposition": _pdf_content_disposition(form["name"])},
+        headers={"Content-Disposition": _pdf_content_disposition(form["name"], kind)},
     )
 
 

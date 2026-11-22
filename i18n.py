@@ -1733,6 +1733,19 @@ _EN = {
     "vx.foot_tag": "Classical Jyotisha calculations · Sidereal, Lahiri ayanamsa.",
     "vx.foot_tools": "Tools",
     "vx.foot_more": "More",
+    # The two report downloads (chart_pdf.build_chart_pdf kind=)
+    "meta.pdf_instant": "Instant report",
+    "meta.pdf_detailed": "Detailed report",
+    "meta.pdf_instant_title": "One page: details, charts and the period running now",
+    "meta.pdf_detailed_title": "Everything: dashas, nakshatras, conjunctions and Sade Sati",
+    "pdf.kind_instant": "Instant report",
+    "pdf.kind_detailed": "Detailed report",
+    "pdf.running_heading": "Running now",
+    "pdf.instant_note": "A one-page summary. The detailed report adds the full dasha sequence, the nakshatra table, conjunctions and Sade Sati.",
+    "pdf.ss_kind": "Period",
+    "pdf.ss_phase": "Phase",
+    "pdf.ss_age": "Age",
+    "pdf.conj_gap": "Separation",
 }
 
 _TA = {
@@ -2746,6 +2759,19 @@ _TA = {
     "vx.foot_tag": "பாரம்பரிய ஜோதிடக் கணிதம் · நிரயன, லாகிரி அயனாம்சம்.",
     "vx.foot_tools": "கருவிகள்",
     "vx.foot_more": "மேலும்",
+    # The two report downloads (chart_pdf.build_chart_pdf kind=)
+    "meta.pdf_instant": "உடனடி அறிக்கை",
+    "meta.pdf_detailed": "விரிவான அறிக்கை",
+    "meta.pdf_instant_title": "ஒரு பக்கம்: விவரங்கள், ஜாதகங்கள், தற்போது நடக்கும் காலம்",
+    "meta.pdf_detailed_title": "அனைத்தும்: தசைகள், நட்சத்திரங்கள், சேர்க்கைகள், ஏழரைச் சனி",
+    "pdf.kind_instant": "உடனடி அறிக்கை",
+    "pdf.kind_detailed": "விரிவான அறிக்கை",
+    "pdf.running_heading": "தற்போது நடப்பது",
+    "pdf.instant_note": "ஒரு பக்கச் சுருக்கம். விரிவான அறிக்கையில் முழுத் தசை வரிசை, நட்சத்திர அட்டவணை, சேர்க்கைகள், ஏழரைச் சனி ஆகியவையும் உண்டு.",
+    "pdf.ss_kind": "வகை",
+    "pdf.ss_phase": "கட்டம்",
+    "pdf.ss_age": "வயது",
+    "pdf.conj_gap": "இடைவெளி",
 }
 
 UI = {"en": _EN, "ta": _TA}
